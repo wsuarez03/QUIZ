@@ -1,0 +1,407 @@
+"use client"
+
+import { useEffect, useState } from "react"
+import { useParams } from "next/navigation"
+import { useRouter } from "next/navigation"
+
+import { db } from "@/lib/firebase"
+
+import {
+  doc,
+  updateDoc,
+  onSnapshot,
+  collection
+} from "firebase/firestore"
+
+import { Button } from "@/components/Button"
+import { Navbar } from "@/components/Navbar"
+import { Leaderboard } from "@/components/Leaderboard"
+
+export default function HostPage() {
+
+  const params = useParams()
+  const router = useRouter()
+  const sessionId = params?.sessionId as string
+
+  const [session, setSession] = useState<any>(null)
+  const [quiz, setQuiz] = useState<any>(null)
+  const [players, setPlayers] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [savingResults, setSavingResults] = useState(false)
+
+  const selectedQuestionIndexes: number[] = Array.isArray(session?.selectedQuestionIndexes)
+    ? session.selectedQuestionIndexes
+    : []
+  const configuredQuestionsPerGame = Math.min(
+    Math.max(1, Number(session?.questionsPerGame || quiz?.settings?.questionsPerGame || quiz?.questions?.length || 1)),
+    Math.max(1, Number(quiz?.questions?.length || 1))
+  )
+  const fallbackOrder = quiz?.questions
+    ? Array.from({ length: quiz.questions.length }, (_, i) => i).slice(0, configuredQuestionsPerGame)
+    : []
+  const questionOrder = selectedQuestionIndexes.length
+    ? selectedQuestionIndexes.slice(0, configuredQuestionsPerGame)
+    : fallbackOrder
+  const totalQuestions = questionOrder.length
+  const currentQuestionIndexInQuiz = questionOrder[session?.currentQuestion ?? 0] ?? session?.currentQuestion ?? 0
+  const question = quiz?.questions?.[currentQuestionIndexInQuiz]
+  const answeredCount = players.filter((p) => Number(p?.lastAnsweredQuestion) === Number(session?.currentQuestion)).length
+  const everyoneAnswered = players.length > 0 && answeredCount === players.length
+
+  // 🔹 Escuchar sesión en tiempo real
+  useEffect(() => {
+
+    if (!sessionId) return
+
+    const sessionRef = doc(db, "game_sessions", sessionId)
+
+    const unsubscribe = onSnapshot(sessionRef, (snap) => {
+
+      const data = snap.data()
+      if (!data) return
+
+      setSession({
+        id: snap.id,
+        ...data
+      })
+
+      setLoading(false)
+
+    })
+
+    return () => unsubscribe()
+
+  }, [sessionId])
+
+
+  // 🔹 Cargar quiz
+  useEffect(() => {
+
+    if (!session?.quizId) return
+
+    const loadQuiz = async () => {
+
+      const res = await fetch(`/api/quizzes/${session.quizId}`)
+      const q = await res.json()
+
+      setQuiz(q)
+
+    }
+
+    loadQuiz()
+
+  }, [session?.quizId])
+
+
+  // 🔹 Escuchar jugadores
+  useEffect(() => {
+
+    if (!sessionId) return
+
+    const playersRef = collection(
+      db,
+      "game_sessions",
+      sessionId,
+      "players"
+    )
+
+    const unsubscribe = onSnapshot(playersRef, (snapshot) => {
+
+      const list: any[] = []
+
+      snapshot.forEach((doc) => {
+
+        list.push({
+          id: doc.id,
+          ...doc.data()
+        })
+
+      })
+
+      setPlayers(list)
+
+    })
+
+    return () => unsubscribe()
+
+  }, [sessionId])
+
+
+  // 🔹 Iniciar juego
+  const startGame = async () => {
+
+    const ref = doc(db, "game_sessions", sessionId)
+
+    await updateDoc(ref, {
+      status: "playing",
+      currentQuestion: 0,
+      questionStartTime: Date.now()
+    })
+
+  }
+
+
+  // 🔹 Siguiente pregunta manual
+  const nextQuestion = async () => {
+
+    if (!quiz) return
+
+    const isLast =
+      session.currentQuestion >= totalQuestions - 1
+
+    if (isLast) {
+
+      const ref = doc(db, "game_sessions", sessionId)
+
+      await updateDoc(ref, {
+        status: "finished"
+      })
+
+      return
+    }
+
+    const ref = doc(db, "game_sessions", sessionId)
+
+    await updateDoc(ref, {
+      currentQuestion: session.currentQuestion + 1,
+      questionStartTime: Date.now()
+    })
+
+  }
+
+  const saveResults = async () => {
+
+    try {
+      setSavingResults(true)
+
+      const response = await fetch("/api/results/save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId })
+      })
+
+      if (!response.ok) {
+        const data = await response.json()
+        alert(data?.error || "No se pudieron guardar los resultados")
+        return
+      }
+
+      router.push("/profile/results")
+
+    } catch (error) {
+      console.error("Error guardando resultados", error)
+      alert("Error guardando resultados")
+    } finally {
+      setSavingResults(false)
+    }
+
+  }
+
+
+  // 🔹 TEMPORIZADOR AUTOMÁTICO
+  useEffect(() => {
+
+    if (!session || !quiz) return
+    if (session.status !== "playing") return
+
+    const isLast =
+      session.currentQuestion >= totalQuestions - 1
+
+    if (isLast) return
+
+    const questionTimeLimit = Math.max(1, Number(question?.timeLimit || 20))
+    const timer = setTimeout(() => {
+
+      nextQuestion()
+
+    }, questionTimeLimit * 1000)
+
+    return () => clearTimeout(timer)
+
+  }, [session?.currentQuestion, session?.status, quiz])
+
+
+  if (loading) {
+
+    return (
+      <>
+        <Navbar />
+        <div className="min-h-screen flex items-center justify-center">
+          Cargando sesión...
+        </div>
+      </>
+    )
+
+  }
+
+  if (!session) {
+
+    return (
+      <>
+        <Navbar />
+        <div className="min-h-screen flex items-center justify-center">
+          Sesión no encontrada
+        </div>
+      </>
+    )
+
+  }
+
+  return (
+    <>
+      <Navbar />
+
+      <main className="min-h-screen p-8 bg-white text-black">
+
+        {/* LOBBY */}
+
+        {session.status === "waiting" && (
+
+          <div className="text-center">
+
+            <h1 className="text-4xl font-bold mb-6">
+              {quiz?.title}
+            </h1>
+
+            <div className="text-6xl font-bold bg-purple-600 text-white p-6 rounded-lg inline-block mb-4">
+              {session.code}
+            </div>
+
+            <p className="mb-4">
+              Jugadores conectados: {players.length}
+            </p>
+
+            <Button onClick={startGame}>
+              Iniciar juego
+            </Button>
+
+            <div className="mt-8 space-y-2">
+
+              {players.map((p) => (
+
+                <div
+                  key={p.id}
+                  className="bg-gray-100 p-3 rounded"
+                >
+                  {p.name}
+                </div>
+
+              ))}
+
+            </div>
+
+          </div>
+
+        )}
+
+
+        {/* FIN DEL JUEGO */}
+
+        {session.status === "finished" && (
+
+          <div className="max-w-3xl mx-auto text-center">
+
+            <h1 className="text-4xl font-bold mb-4">🏆 Quiz finalizado</h1>
+
+            <p className="text-gray-500 mb-8">{quiz?.title}</p>
+
+            <Leaderboard
+              entries={players
+                .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
+                .map((p, idx) => ({
+                  rank: idx + 1,
+                  playerId: p.id,
+                  playerName: p.name,
+                  score: p.score ?? 0,
+                  correctAnswers: p.correctAnswers ?? 0,
+                  accuracy:
+                    quiz?.questions?.length > 0
+                      ? Math.round(((p.correctAnswers ?? 0) / quiz.questions.length) * 100)
+                      : 0
+                }))}
+              title="Tabla de posiciones final"
+            />
+
+            <div className="mt-6">
+              <Button onClick={saveResults} disabled={savingResults}>
+                {savingResults ? "Guardando..." : "Guardar resultados en perfil"}
+              </Button>
+            </div>
+
+          </div>
+
+        )}
+
+        {/* JUEGO */}
+
+        {session.status === "playing" && question && (
+
+          <div className="max-w-3xl mx-auto text-center">
+
+            <h2 className="text-2xl mb-4">
+              Pregunta {session.currentQuestion + 1} de {totalQuestions}
+            </h2>
+
+            <h1 className="text-3xl font-bold mb-8">
+              {question.text}
+            </h1>
+
+            <div className="grid grid-cols-2 gap-4 mb-8">
+
+              {question.options.map((opt: string, i: number) => (
+
+                <div
+                  key={i}
+                  className="p-4 bg-gray-100 rounded"
+                >
+                  {opt}
+                </div>
+
+              ))}
+
+            </div>
+
+            <div className="mb-3 text-sm text-gray-600">
+              Respondieron {answeredCount} / {players.length}
+            </div>
+
+            <Button onClick={nextQuestion} disabled={!everyoneAnswered}>
+              Siguiente pregunta
+            </Button>
+
+            {!everyoneAnswered && (
+              <p className="mt-2 text-sm text-amber-700">
+                Debes esperar a que todos respondan para pasar manualmente.
+              </p>
+            )}
+
+            <div className="mt-10">
+
+              <Leaderboard
+                entries={players
+                  .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
+                  .map((p, idx) => ({
+                    rank: idx + 1,
+                    playerId: p.id,
+                    playerName: p.name,
+                    score: p.score ?? 0,
+                    correctAnswers: p.correctAnswers ?? 0,
+                    accuracy:
+                      quiz?.questions?.length > 0
+                        ? Math.round(((p.correctAnswers ?? 0) / quiz.questions.length) * 100)
+                        : 0
+                  }))}
+                title="Tabla de posiciones"
+              />
+
+            </div>
+
+          </div>
+
+        )}
+
+      </main>
+
+    </>
+  )
+}
