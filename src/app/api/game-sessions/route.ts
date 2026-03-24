@@ -42,7 +42,7 @@ export async function POST(req: Request) {
       )
     }
 
-    const quizData = quizSnap.exists() ? quizSnap.data() : mockQuiz
+    const quizData: any = quizSnap.exists() ? quizSnap.data() : mockQuiz
     const mockQuestionList = (mockQuestions as Record<string, any[]>)[quizId] || []
     const quizQuestions = Array.isArray(quizData?.questions) && quizData?.questions?.length
       ? quizData.questions
