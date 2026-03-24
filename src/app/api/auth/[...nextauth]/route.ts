@@ -5,6 +5,18 @@ import { mockUsers } from '@/lib/mockData';
 import bcrypt from 'bcryptjs';
 import { JWT } from 'next-auth/jwt';
 
+function normalizeEnv(value?: string) {
+  if (!value) return '';
+  const trimmed = value.trim();
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'"))
+  ) {
+    return trimmed.slice(1, -1);
+  }
+  return trimmed;
+}
+
 declare module 'next-auth' {
   interface User {
     id: string;
@@ -66,7 +78,7 @@ const authOptions: NextAuthOptions = {
           }
 
           // Use Firebase REST API to verify password
-          const firebaseApiKey = process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
+          const firebaseApiKey = normalizeEnv(process.env.NEXT_PUBLIC_FIREBASE_API_KEY);
           if (!firebaseApiKey) {
             throw new Error('Firebase API key not configured');
           }

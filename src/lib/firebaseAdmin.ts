@@ -7,10 +7,22 @@ import admin from 'firebase-admin';
 let adminDb: any = null;
 let isConfigured = false;
 
+function normalizeEnv(value?: string) {
+  if (!value) return '';
+  const trimmed = value.trim();
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'"))
+  ) {
+    return trimmed.slice(1, -1);
+  }
+  return trimmed;
+}
+
 if (!admin.apps.length) {
-  const projectId = process.env.FIREBASE_PROJECT_ID;
-  const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
-  const privateKeyRaw = process.env.FIREBASE_PRIVATE_KEY;
+  const projectId = normalizeEnv(process.env.FIREBASE_PROJECT_ID);
+  const clientEmail = normalizeEnv(process.env.FIREBASE_CLIENT_EMAIL);
+  const privateKeyRaw = normalizeEnv(process.env.FIREBASE_PRIVATE_KEY);
 
   if (projectId && clientEmail && privateKeyRaw) {
     try {
@@ -29,6 +41,7 @@ if (!admin.apps.length) {
       console.warn(
         '⚠ Firebase Admin SDK initialization failed. Using mock data for development.'
       );
+      console.warn(error);
     }
   } else {
     console.log(
