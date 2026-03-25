@@ -8,6 +8,7 @@ import { db } from "@/lib/firebase"
 
 import {
   doc,
+  getDoc,
   updateDoc,
   onSnapshot,
   collection
@@ -81,10 +82,27 @@ export default function HostPage() {
 
     const loadQuiz = async () => {
 
-      const res = await fetch(`/api/quizzes/${session.quizId}`)
-      const q = await res.json()
+      try {
+        const res = await fetch(`/api/quizzes/${session.quizId}`)
+        if (res.ok) {
+          const q = await res.json()
+          if (q && Array.isArray(q.questions) && q.questions.length > 0) {
+            setQuiz(q)
+            return
+          }
+        }
+      } catch { /* fall through to client SDK */ }
 
-      setQuiz(q)
+      // Fallback: read directly from Firestore client SDK
+      try {
+        const snap = await getDoc(doc(db, 'quizzes', session.quizId))
+        if (snap.exists()) {
+          const data: any = snap.data()
+          setQuiz({ id: snap.id, ...data, questions: data.questions ?? [] })
+        }
+      } catch (err) {
+        console.error('Failed to load quiz from Firestore:', err)
+      }
 
     }
 
@@ -203,11 +221,6 @@ export default function HostPage() {
 
     if (!session || !quiz) return
     if (session.status !== "playing") return
-
-    const isLast =
-      session.currentQuestion >= totalQuestions - 1
-
-    if (isLast) return
 
     const questionTimeLimit = Math.max(1, Number(question?.timeLimit || 20))
     const timer = setTimeout(() => {
@@ -365,13 +378,13 @@ export default function HostPage() {
               Respondieron {answeredCount} / {players.length}
             </div>
 
-            <Button onClick={nextQuestion} disabled={!everyoneAnswered}>
+            <Button onClick={nextQuestion}>
               Siguiente pregunta
             </Button>
 
-            {!everyoneAnswered && (
+            {players.length > 0 && !everyoneAnswered && (
               <p className="mt-2 text-sm text-amber-700">
-                Debes esperar a que todos respondan para pasar manualmente.
+                Respondieron {answeredCount} / {players.length}
               </p>
             )}
 
