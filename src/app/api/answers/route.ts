@@ -16,21 +16,36 @@ import {
 
 let preferAdminForAnswers = Boolean(adminDbInstance);
 
+type AnswerBody = {
+  sessionId: string;
+  playerName?: string;
+  playerId?: string;
+  questionIndex: number;
+  answerIndex: number;
+};
+
 export async function POST(req: NextRequest) {
+  let body: AnswerBody;
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: "invalid body" }, { status: 400 });
+  }
+
   if (preferAdminForAnswers && adminDbInstance) {
     try {
-      return await handleWithAdmin(req);
+      return await handleWithAdmin(body);
     } catch (e) {
       preferAdminForAnswers = false;
       console.error("Answer error (Admin), switching to client fallback:", e);
-      return handleWithClientSDK(req);
+      return handleWithClientSDK(body);
     }
   }
-  return handleWithClientSDK(req);
+  return handleWithClientSDK(body);
 }
 
-async function handleWithAdmin(req: NextRequest): Promise<NextResponse> {
-    const { sessionId, playerName, playerId, questionIndex, answerIndex } = await req.json();
+async function handleWithAdmin(body: AnswerBody): Promise<NextResponse> {
+    const { sessionId, playerName, playerId, questionIndex, answerIndex } = body;
 
     const sessionSnap = await adminDbInstance.collection("game_sessions").doc(sessionId).get();
     if (!sessionSnap.exists) {
@@ -119,10 +134,9 @@ async function handleWithAdmin(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ success: true, correct, score });
 }
 
-async function handleWithClientSDK(req: NextRequest): Promise<NextResponse> {
+async function handleWithClientSDK(body: AnswerBody): Promise<NextResponse> {
   try {
-    const { sessionId, playerName, playerId, questionIndex, answerIndex } =
-      await req.json();
+    const { sessionId, playerName, playerId, questionIndex, answerIndex } = body;
 
     const sessionSnap = await getDoc(
       doc(db, "game_sessions", sessionId)
