@@ -26,6 +26,7 @@ export default function LoginPage() {
       });
 
       if (result?.error) {
+        console.error('Login error code:', result.error);
         if (result.error === 'CredentialsSignin') {
           setError('Email o contrasena incorrectos.');
         } else if (result.error.includes('FIREBASE_AUTH_ERROR:OPERATION_NOT_ALLOWED')) {
@@ -37,7 +38,7 @@ export default function LoginPage() {
         } else if (result.error.includes('FIREBASE_AUTH_ERROR:USER_DISABLED')) {
           setError('Este usuario fue deshabilitado en Firebase Authentication.');
         } else {
-          setError('No fue posible iniciar sesion. Revisa la configuracion de Firebase en Vercel.');
+          setError(`No fue posible iniciar sesion (${result.error}).`);
         }
       } else {
         router.push('/dashboard');
