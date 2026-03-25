@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminDbInstance, isConfigured } from '@/lib/firebaseAdmin';
+import { db } from '@/lib/firebase';
+import { doc, getDoc } from 'firebase/firestore';
 import { mockQuizzes, mockQuestions } from '@/lib/mockData';
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
-// server-side operations use adminDb to bypass security rules
 
 export async function GET(
   request: NextRequest,
@@ -12,85 +13,59 @@ export async function GET(
   try {
     const { id: quizId } = await params;
 
-    // If Firebase Admin is not configured, use mock data
+    // 1. Try Admin SDK
+    if (adminDbInstance) {
+      try {
+        const quizSnapshot = await adminDbInstance.collection('quizzes').doc(quizId).get();
+        if (quizSnapshot.exists) {
+          const quizData = quizSnapshot.data() as any;
+          let questions: any[] = Array.isArray(quizData?.questions) ? quizData.questions : [];
+          if (!questions.length) {
+            try {
+              const sub = await adminDbInstance
+                .collection('quizzes').doc(quizId).collection('questions').get();
+              questions = sub.docs.map((d: any) => ({ id: d.id, ...d.data() }));
+            } catch { /* no subcollection */ }
+          }
+          return NextResponse.json(
+            { id: quizId, ...quizData, questions, createdAt: quizData.createdAt?.toDate?.() || new Date() },
+            { status: 200 }
+          );
+        }
+      } catch (adminErr) {
+        console.warn('Admin SDK failed fetching quiz, trying fallback:', adminErr);
+      }
+    }
+
+    // 2. Try client SDK
+    try {
+      const snap = await getDoc(doc(db, 'quizzes', quizId));
+      if (snap.exists()) {
+        const data = snap.data() as any;
+        const questions: any[] = Array.isArray(data.questions) ? data.questions : [];
+        return NextResponse.json(
+          { id: quizId, ...data, questions, createdAt: data.createdAt?.toDate?.() || new Date() },
+          { status: 200 }
+        );
+      }
+    } catch (clientErr) {
+      console.warn('Client SDK failed fetching quiz:', clientErr);
+    }
+
+    // 3. Mock fallback (local dev only)
     if (!isConfigured) {
       const quiz = mockQuizzes.find((q) => q.id === quizId);
-      if (!quiz) {
-        return NextResponse.json(
-          { message: 'Quiz not found' },
-          { status: 404 }
-        );
-      }
-      // Adjuntar preguntas desde mockQuestions (type assertion para evitar error TS)
-      const questions = (mockQuestions as Record<string, any[]>)[quizId] || [];
-      return NextResponse.json({ ...quiz, questions }, { status: 200 });
-    }
-
-    // adminDb is used on server to bypass security rules
-    const quizSnapshot = await adminDbInstance
-      .collection('quizzes')
-      .doc(quizId)
-      .get();
-
-    if (!quizSnapshot.exists) {
-      // fallback a mock para ambientes mixtos (UI con mocks + APIs reales)
-      const mockQuiz = mockQuizzes.find((q) => q.id === quizId);
-      if (!mockQuiz) {
-        return NextResponse.json(
-          { message: 'Quiz not found' },
-          { status: 404 }
-        );
-      }
-
-      const mockQuestionList = (mockQuestions as Record<string, any[]>)[quizId] || [];
-      return NextResponse.json(
-        {
-          ...mockQuiz,
-          questions: mockQuestionList,
-        },
-        { status: 200 }
-      );
-    }
-
-    const quizData = quizSnapshot.data();
-
-    // Fetch questions for this quiz.
-    // Some setups store questions inside the quiz document (quizData.questions),
-    // while newer versions store them in a subcollection.
-    let questions: any[] = Array.isArray(quizData?.questions) ? quizData.questions : [];
-
-    if (!questions.length) {
-      try {
-        const questionsSnapshot = await adminDbInstance
-          .collection('quizzes')
-          .doc(quizId)
-          .collection('questions')
-          .get();
-
-        questions = questionsSnapshot.docs.map((doc: any) => ({
-          id: doc.id,
-          ...doc.data(),
-        }));
-      } catch (error) {
-        console.log('Note: Could not fetch questions from subcollection:', error);
+      if (quiz) {
+        const questions = (mockQuestions as Record<string, any[]>)[quizId] || [];
+        return NextResponse.json({ ...quiz, questions }, { status: 200 });
       }
     }
 
-    return NextResponse.json(
-      {
-        id: quizId,
-        ...quizData,
-        questions: questions,
-        createdAt: quizData.createdAt?.toDate?.() || new Date(),
-      },
-      { status: 200 }
-    );
+    return NextResponse.json({ message: 'Quiz not found' }, { status: 404 });
+
   } catch (error) {
     console.error('Error fetching quiz:', error);
-    return NextResponse.json(
-      { message: 'Internal server error' },
-      { status: 500 }
-    );
+    return NextResponse.json({ message: 'Internal server error' }, { status: 500 });
   }
 }
 
