@@ -49,8 +49,14 @@ const authOptions: NextAuthOptions = {
         }
 
         try {
-          // If Firebase Admin is not configured, use mock authentication
-          if (!isConfigured) {
+          const firebaseApiKey = normalizeEnv(process.env.NEXT_PUBLIC_FIREBASE_API_KEY);
+
+          // If Firebase API key is missing, only allow mock auth in local development.
+          if (!firebaseApiKey) {
+            if (process.env.NODE_ENV === 'production') {
+              throw new Error('Server misconfiguration: NEXT_PUBLIC_FIREBASE_API_KEY is missing');
+            }
+
             const mockUser = mockUsers.find(
               (user) => user.email === credentials.email
             );
@@ -79,10 +85,6 @@ const authOptions: NextAuthOptions = {
           }
 
           // Use Firebase REST API to verify password
-          const firebaseApiKey = normalizeEnv(process.env.NEXT_PUBLIC_FIREBASE_API_KEY);
-          if (!firebaseApiKey) {
-            throw new Error('Server misconfiguration: NEXT_PUBLIC_FIREBASE_API_KEY is missing');
-          }
 
           const signInResponse = await fetch(
             `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${firebaseApiKey}`,
@@ -104,6 +106,15 @@ const authOptions: NextAuthOptions = {
               return null;
             }
             throw new Error(signInData.error?.message || 'Authentication failed');
+          }
+
+          if (!isConfigured || !adminDbInstance) {
+            return {
+              id: signInData.localId,
+              email: credentials.email,
+              name: credentials.email.split('@')[0],
+              image: null,
+            };
           }
 
           // Get user profile from Firestore
