@@ -13,79 +13,97 @@ import {
   serverTimestamp
 } from "firebase/firestore"
 
+type JoinBody = {
+  code?: string
+  sessionId?: string
+  name?: string
+}
+
 export async function POST(req: Request) {
-  // Prefer Admin SDK (bypasses Firestore security rules)
+  let body: JoinBody
+  try {
+    body = await req.json()
+  } catch {
+    return NextResponse.json(
+      { error: "Body inválido" },
+      { status: 400 }
+    )
+  }
+
+  // Prefer Admin SDK, but fallback to client SDK if it fails in production.
   if (adminDbInstance) {
-    return handleWithAdmin(req)
+    try {
+      return await handleWithAdmin(body)
+    } catch (error) {
+      console.error("Error en join (Admin), intentando fallback:", error)
+    }
   }
-  return handleWithClientSDK(req)
-}
 
-async function handleWithAdmin(req: Request): Promise<NextResponse> {
   try {
-    const body = await req.json()
-    const sessionCode = body?.code?.toString().trim()
-    const sessionIdFromBody = body?.sessionId?.toString().trim()
-    const playerName = body?.name?.toString().trim()
-
-    if ((!sessionCode && !sessionIdFromBody) || !playerName) {
-      return NextResponse.json({ error: "Código o ID de sesión y nombre son obligatorios" }, { status: 400 })
-    }
-
-    let sessionId = ""
-    let sessionData: any = null
-
-    if (sessionCode) {
-      const snap = await adminDbInstance.collection("game_sessions").where("code", "==", sessionCode).limit(1).get()
-      if (!snap.empty) {
-        sessionId = snap.docs[0].id
-        sessionData = snap.docs[0].data()
-      }
-    }
-
-    if (!sessionData && sessionIdFromBody) {
-      const snap = await adminDbInstance.collection("game_sessions").doc(sessionIdFromBody).get()
-      if (snap.exists) {
-        sessionId = snap.id
-        sessionData = snap.data()
-      }
-    }
-
-    if (!sessionData) {
-      return NextResponse.json({ error: "Código de sesión inválido" }, { status: 404 })
-    }
-
-    if (sessionData.status !== "waiting" && sessionData.status !== "playing") {
-      return NextResponse.json({ error: "No es posible unirse a la sesión en este momento" }, { status: 400 })
-    }
-
-    const playersRef = adminDbInstance.collection("game_sessions").doc(sessionId).collection("players")
-    const existing = await playersRef.where("name", "==", playerName).limit(1).get()
-
-    if (!existing.empty) {
-      return NextResponse.json({ success: true, playerId: existing.docs[0].id, sessionId })
-    }
-
-    const newPlayer = await playersRef.add({
-      name: playerName,
-      score: 0,
-      answers: [],
-      joinedAt: new Date()
-    })
-
-    return NextResponse.json({ success: true, playerId: newPlayer.id, sessionId })
-
+    return await handleWithClientSDK(body)
   } catch (error) {
-    console.error("Error en join (Admin):", error)
-    return NextResponse.json({ error: "Error interno del servidor" }, { status: 500 })
+    console.error("Error en join (Client fallback):", error)
+    return NextResponse.json(
+      { error: "Error interno del servidor" },
+      { status: 500 }
+    )
   }
 }
 
-async function handleWithClientSDK(req: Request): Promise<NextResponse> {
+async function handleWithAdmin(body: JoinBody): Promise<NextResponse> {
+  const sessionCode = body?.code?.toString().trim()
+  const sessionIdFromBody = body?.sessionId?.toString().trim()
+  const playerName = body?.name?.toString().trim()
 
-  try {
+  if ((!sessionCode && !sessionIdFromBody) || !playerName) {
+    return NextResponse.json({ error: "Código o ID de sesión y nombre son obligatorios" }, { status: 400 })
+  }
 
-    const body = await req.json()
+  let sessionId = ""
+  let sessionData: any = null
+
+  if (sessionCode) {
+    const snap = await adminDbInstance.collection("game_sessions").where("code", "==", sessionCode).limit(1).get()
+    if (!snap.empty) {
+      sessionId = snap.docs[0].id
+      sessionData = snap.docs[0].data()
+    }
+  }
+
+  if (!sessionData && sessionIdFromBody) {
+    const snap = await adminDbInstance.collection("game_sessions").doc(sessionIdFromBody).get()
+    if (snap.exists) {
+      sessionId = snap.id
+      sessionData = snap.data()
+    }
+  }
+
+  if (!sessionData) {
+    return NextResponse.json({ error: "Código de sesión inválido" }, { status: 404 })
+  }
+
+  if (sessionData.status !== "waiting" && sessionData.status !== "playing") {
+    return NextResponse.json({ error: "No es posible unirse a la sesión en este momento" }, { status: 400 })
+  }
+
+  const playersRef = adminDbInstance.collection("game_sessions").doc(sessionId).collection("players")
+  const existing = await playersRef.where("name", "==", playerName).limit(1).get()
+
+  if (!existing.empty) {
+    return NextResponse.json({ success: true, playerId: existing.docs[0].id, sessionId })
+  }
+
+  const newPlayer = await playersRef.add({
+    name: playerName,
+    score: 0,
+    answers: [],
+    joinedAt: new Date()
+  })
+
+  return NextResponse.json({ success: true, playerId: newPlayer.id, sessionId })
+}
+
+async function handleWithClientSDK(body: JoinBody): Promise<NextResponse> {
 
     const sessionCode = body?.code?.toString().trim()
     const sessionIdFromBody = body?.sessionId?.toString().trim()
@@ -181,16 +199,5 @@ async function handleWithClientSDK(req: Request): Promise<NextResponse> {
       playerId: playerRef.id,
       sessionId
     })
-
-  } catch (error) {
-
-    console.error("Error en join:", error)
-
-    return NextResponse.json(
-      { error: "Error interno del servidor" },
-      { status: 500 }
-    )
-
-  }
 
 }
