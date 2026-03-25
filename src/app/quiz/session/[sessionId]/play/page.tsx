@@ -20,6 +20,7 @@ export default function PlaySessionPage() {
   const [players, setPlayers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [answerError, setAnswerError] = useState("");
 
   const [selected, setSelected] = useState<number | null>(null);
   const [answered, setAnswered] = useState(false);
@@ -52,6 +53,7 @@ export default function PlaySessionPage() {
 
     setSelected(index);
     setAnswered(true);
+    setAnswerError("");
 
     const res = await fetch("/api/answers", {
       method: "POST",
@@ -67,7 +69,15 @@ export default function PlaySessionPage() {
 
     const result = await res.json();
 
-    setCorrect(result.correct);
+    if (!res.ok) {
+      setAnswered(false);
+      setSelected(null);
+      setCorrect(null);
+      setAnswerError(result?.error || "No se pudo registrar la respuesta");
+      return;
+    }
+
+    setCorrect(typeof result?.correct === "boolean" ? result.correct : null);
   }
 
   useEffect(() => {
@@ -171,6 +181,7 @@ export default function PlaySessionPage() {
     setSelected(null);
     setAnswered(false);
     setCorrect(null);
+    setAnswerError("");
     setTime(questionTimeLimit);
 
   }, [session?.currentQuestion, questionTimeLimit]);
@@ -309,6 +320,12 @@ export default function PlaySessionPage() {
         {correct !== null && (
           <div className="mt-6 text-xl font-bold">
             {correct ? "✅ Correcto" : "❌ Incorrecto"}
+          </div>
+        )}
+
+        {answerError && (
+          <div className="mt-4 text-red-600 font-semibold">
+            {answerError}
           </div>
         )}
 

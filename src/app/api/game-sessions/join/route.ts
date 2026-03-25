@@ -19,6 +19,8 @@ type JoinBody = {
   name?: string
 }
 
+let preferAdminForJoin = Boolean(adminDbInstance)
+
 export async function POST(req: Request) {
   let body: JoinBody
   try {
@@ -31,10 +33,11 @@ export async function POST(req: Request) {
   }
 
   // Prefer Admin SDK, but fallback to client SDK if it fails in production.
-  if (adminDbInstance) {
+  if (preferAdminForJoin && adminDbInstance) {
     try {
       return await handleWithAdmin(body)
     } catch (error) {
+      preferAdminForJoin = false
       console.error("Error en join (Admin), intentando fallback:", error)
     }
   }

@@ -14,15 +14,22 @@ import {
   getDocs
 } from "firebase/firestore";
 
+let preferAdminForAnswers = Boolean(adminDbInstance);
+
 export async function POST(req: NextRequest) {
-  if (adminDbInstance) {
-    return handleWithAdmin(req);
+  if (preferAdminForAnswers && adminDbInstance) {
+    try {
+      return await handleWithAdmin(req);
+    } catch (e) {
+      preferAdminForAnswers = false;
+      console.error("Answer error (Admin), switching to client fallback:", e);
+      return handleWithClientSDK(req);
+    }
   }
   return handleWithClientSDK(req);
 }
 
 async function handleWithAdmin(req: NextRequest): Promise<NextResponse> {
-  try {
     const { sessionId, playerName, playerId, questionIndex, answerIndex } = await req.json();
 
     const sessionSnap = await adminDbInstance.collection("game_sessions").doc(sessionId).get();
@@ -36,11 +43,20 @@ async function handleWithAdmin(req: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: "quiz not found" }, { status: 404 });
     }
     const quiz = quizSnap.data() as any;
+    let questions: any[] = Array.isArray(quiz?.questions) ? quiz.questions : [];
+    if (!questions.length) {
+      const sub = await adminDbInstance
+        .collection("quizzes")
+        .doc(session.quizId)
+        .collection("questions")
+        .get();
+      questions = sub.docs.map((d: any) => ({ id: d.id, ...d.data() }));
+    }
 
     const selectedQuestionIndexes: number[] = Array.isArray(session.selectedQuestionIndexes)
       ? session.selectedQuestionIndexes : [];
     const sourceQuestionIndex = selectedQuestionIndexes[questionIndex] ?? questionIndex;
-    const question = quiz.questions?.[sourceQuestionIndex];
+    const question = questions?.[sourceQuestionIndex];
 
     if (!question) {
       return NextResponse.json({ error: "question not found" }, { status: 400 });
@@ -101,11 +117,6 @@ async function handleWithAdmin(req: NextRequest): Promise<NextResponse> {
     }
 
     return NextResponse.json({ success: true, correct, score });
-
-  } catch (e) {
-    console.error("Answer error (Admin):", e);
-    return NextResponse.json({ error: "server error" }, { status: 500 });
-  }
 }
 
 async function handleWithClientSDK(req: NextRequest): Promise<NextResponse> {
@@ -138,13 +149,18 @@ async function handleWithClientSDK(req: NextRequest): Promise<NextResponse> {
     }
 
     const quiz = quizSnap.data();
+    let questions: any[] = Array.isArray((quiz as any)?.questions) ? (quiz as any).questions : [];
+    if (!questions.length) {
+      const sub = await getDocs(collection(db, "quizzes", session.quizId, "questions"));
+      questions = sub.docs.map((d) => ({ id: d.id, ...d.data() }));
+    }
 
     const selectedQuestionIndexes: number[] = Array.isArray(session.selectedQuestionIndexes)
       ? session.selectedQuestionIndexes
       : [];
     const sourceQuestionIndex = selectedQuestionIndexes[questionIndex] ?? questionIndex;
 
-    const question = quiz.questions?.[sourceQuestionIndex];
+    const question = questions?.[sourceQuestionIndex];
 
     if (!question) {
       return NextResponse.json(

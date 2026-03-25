@@ -4,6 +4,8 @@ import { adminDbInstance } from "@/lib/firebaseAdmin"
 import { NextResponse } from "next/server"
 import { mockQuizzes, mockQuestions } from "@/lib/mockData"
 
+let preferAdminForSessions = Boolean(adminDbInstance)
+
 function shuffle<T>(items: T[]) {
   const copy = [...items]
   for (let i = copy.length - 1; i > 0; i--) {
@@ -34,11 +36,12 @@ export async function POST(req: Request) {
     // 1️⃣ validar que el quiz exista — Admin SDK first, then client SDK, then mocks
     let quizData: any = null
 
-    if (adminDbInstance) {
+    if (preferAdminForSessions && adminDbInstance) {
       try {
         const snap = await adminDbInstance.collection("quizzes").doc(quizId).get()
         if (snap.exists) quizData = snap.data()
       } catch (adminErr) {
+        preferAdminForSessions = false
         console.warn("Admin quiz read failed, trying fallback:", adminErr)
       }
     }
@@ -85,7 +88,7 @@ export async function POST(req: Request) {
     let code = generateCode()
     let codeExists = true
 
-    let canUseAdmin = Boolean(adminDbInstance)
+    let canUseAdmin = Boolean(preferAdminForSessions && adminDbInstance)
 
     while (codeExists) {
       let isEmpty = false
@@ -95,6 +98,7 @@ export async function POST(req: Request) {
           isEmpty = snap.empty
         } catch (adminErr) {
           console.warn("Admin code check failed, switching to client fallback:", adminErr)
+          preferAdminForSessions = false
           canUseAdmin = false
           continue
         }
@@ -136,6 +140,7 @@ export async function POST(req: Request) {
         sessionId = ref.id
       } catch (adminErr) {
         console.warn("Admin session create failed, trying client fallback:", adminErr)
+        preferAdminForSessions = false
         const ref = await addDoc(collection(db, "game_sessions"), { ...sessionPayload, createdAt: serverTimestamp() })
         sessionId = ref.id
       }
