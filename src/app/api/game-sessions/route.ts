@@ -35,13 +35,21 @@ export async function POST(req: Request) {
     let quizData: any = null
 
     if (adminDbInstance) {
-      const snap = await adminDbInstance.collection("quizzes").doc(quizId).get()
-      if (snap.exists) quizData = snap.data()
+      try {
+        const snap = await adminDbInstance.collection("quizzes").doc(quizId).get()
+        if (snap.exists) quizData = snap.data()
+      } catch (adminErr) {
+        console.warn("Admin quiz read failed, trying fallback:", adminErr)
+      }
     }
 
     if (!quizData) {
-      const quizSnap = await getDoc(doc(db, "quizzes", quizId))
-      if (quizSnap.exists()) quizData = quizSnap.data()
+      try {
+        const quizSnap = await getDoc(doc(db, "quizzes", quizId))
+        if (quizSnap.exists()) quizData = quizSnap.data()
+      } catch (clientErr) {
+        console.warn("Client quiz read failed:", clientErr)
+      }
     }
 
     const mockQuiz = mockQuizzes.find((q) => q.id === quizId)
@@ -77,14 +85,30 @@ export async function POST(req: Request) {
     let code = generateCode()
     let codeExists = true
 
+    let canUseAdmin = Boolean(adminDbInstance)
+
     while (codeExists) {
       let isEmpty = false
-      if (adminDbInstance) {
-        const snap = await adminDbInstance.collection("game_sessions").where("code", "==", code).limit(1).get()
-        isEmpty = snap.empty
+      if (canUseAdmin && adminDbInstance) {
+        try {
+          const snap = await adminDbInstance.collection("game_sessions").where("code", "==", code).limit(1).get()
+          isEmpty = snap.empty
+        } catch (adminErr) {
+          console.warn("Admin code check failed, switching to client fallback:", adminErr)
+          canUseAdmin = false
+          continue
+        }
       } else {
-        const snap = await getDocs(query(collection(db, "game_sessions"), where("code", "==", code)))
-        isEmpty = snap.empty
+        try {
+          const snap = await getDocs(query(collection(db, "game_sessions"), where("code", "==", code)))
+          isEmpty = snap.empty
+        } catch (clientErr) {
+          console.error("Client code check failed:", clientErr)
+          return NextResponse.json(
+            { error: "No se pudo validar el código de sesión" },
+            { status: 500 }
+          )
+        }
       }
       if (isEmpty) {
         codeExists = false
@@ -106,9 +130,15 @@ export async function POST(req: Request) {
       createdAt: new Date()
     }
 
-    if (adminDbInstance) {
-      const ref = await adminDbInstance.collection("game_sessions").add(sessionPayload)
-      sessionId = ref.id
+    if (canUseAdmin && adminDbInstance) {
+      try {
+        const ref = await adminDbInstance.collection("game_sessions").add(sessionPayload)
+        sessionId = ref.id
+      } catch (adminErr) {
+        console.warn("Admin session create failed, trying client fallback:", adminErr)
+        const ref = await addDoc(collection(db, "game_sessions"), { ...sessionPayload, createdAt: serverTimestamp() })
+        sessionId = ref.id
+      }
     } else {
       const ref = await addDoc(collection(db, "game_sessions"), { ...sessionPayload, createdAt: serverTimestamp() })
       sessionId = ref.id

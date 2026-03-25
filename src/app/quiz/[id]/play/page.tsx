@@ -28,7 +28,12 @@ export default function PlayQuizPage() {
           })
         })
 
-        const data = await res.json()
+        let data: any = null
+        try {
+          data = await res.json()
+        } catch {
+          data = { error: `Respuesta inválida del servidor (${res.status})` }
+        }
 
         if (!res.ok) {
 
@@ -46,7 +51,8 @@ export default function PlayQuizPage() {
       } catch (err) {
 
         console.error("ERROR:", err)
-        alert('No se pudo iniciar la sesión')
+        const message = err instanceof Error ? err.message : 'No se pudo iniciar la sesión'
+        alert(message)
 
       }
 
