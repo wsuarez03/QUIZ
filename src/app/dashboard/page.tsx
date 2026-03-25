@@ -15,7 +15,7 @@ export default function Dashboard() {
 
   const [quizzes, setQuizzes] = useState<Quiz[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'my' | 'public'>('my');
+  const [activeTab, setActiveTab] = useState<'my' | 'public'>('public');
   const [error, setError] = useState<string | null>(null);
 
   // Redirect if not authenticated
@@ -117,7 +117,7 @@ export default function Dashboard() {
 
           <div className="flex justify-between items-center mb-12">
             <h1 className="text-4xl font-bold text-gray-900">
-              My Quizzes
+              {activeTab === 'my' ? 'My Quizzes' : 'Public Quizzes'}
             </h1>
 
             <Link href="/quiz/create">
@@ -130,6 +130,10 @@ export default function Dashboard() {
               ⚠️ {error}
             </div>
           )}
+
+          <div className="mb-4 text-sm text-gray-600">
+            Usuario activo: <span className="font-semibold">{session?.user?.email || 'sin email'}</span>
+          </div>
 
           {/* Tabs */}
           <div className="flex gap-4 mb-8 border-b border-gray-200">
@@ -166,7 +170,7 @@ export default function Dashboard() {
 
               <p className="text-gray-600 mb-6">
                 {activeTab === 'my'
-                  ? 'Create your first quiz and start playing!'
+                  ? 'No tienes quizzes creados con este usuario. Prueba la pestana Public Quizzes.'
                   : 'No public quizzes available yet.'}
               </p>
 
