@@ -32,7 +32,7 @@ export async function GET(request: NextRequest) {
             totalQuestions: questionCount,
             createdAt: data.createdAt?.toDate?.() || new Date(),
           };
-        }).filter((quiz) => quiz.isPublic === true || quiz.isPublic === 'true');
+        }).filter((quiz: any) => quiz.isPublic === true || quiz.isPublic === 'true');
 
         return NextResponse.json(clientQuizzes, { status: 200 });
       } catch (fallbackError) {
@@ -61,7 +61,7 @@ export async function GET(request: NextRequest) {
           totalQuestions: questionCount,
           createdAt: data.createdAt?.toDate?.() || new Date(),
         };
-      }).filter((quiz) => quiz.isPublic === true || quiz.isPublic === 'true');
+      }).filter((quiz: any) => quiz.isPublic === true || quiz.isPublic === 'true');
     } catch (err) {
       console.error('Firestore public query failed:', err);
       quizzes = [];
