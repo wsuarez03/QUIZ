@@ -15,8 +15,31 @@ export async function GET(request: NextRequest) {
     }
 
     if (!adminDbInstance) {
-      console.error('Firebase Admin is not available in production for /api/quizzes/public');
-      return NextResponse.json([], { status: 200 });
+      console.warn('Firebase Admin is not available, using client SDK fallback for public quizzes');
+      try {
+        const clientQuery = query(collection(db, 'quizzes'), where('isPublic', '==', true));
+        const clientSnap = await getDocs(clientQuery);
+
+        const clientQuizzes = clientSnap.docs.map((doc) => {
+          const data: any = doc.data();
+          const questionCount = Array.isArray(data.questions)
+            ? data.questions.length
+            : Number(data.totalQuestions || data.settings?.questionsPerGame || 0);
+
+          return {
+            id: doc.id,
+            ...data,
+            questions: data.questions ?? [],
+            totalQuestions: questionCount,
+            createdAt: data.createdAt?.toDate?.() || new Date(),
+          };
+        });
+
+        return NextResponse.json(clientQuizzes, { status: 200 });
+      } catch (fallbackError) {
+        console.error('Client SDK fallback failed for public quizzes:', fallbackError);
+        return NextResponse.json([], { status: 200 });
+      }
     }
 
     let quizzes;

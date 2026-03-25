@@ -33,8 +33,46 @@ export async function GET(request: NextRequest) {
     }
 
     if (!adminDbInstance) {
-      console.error('Firebase Admin is not available in production for /api/quizzes/my');
-      return NextResponse.json([], { status: 200 });
+      console.warn('Firebase Admin is not available, using client SDK fallback for my quizzes');
+
+      try {
+        const snapshots = await Promise.all([
+          ownerId
+            ? getDocs(query(collection(db, 'quizzes'), where('createdBy', '==', ownerId)))
+            : Promise.resolve(null),
+          ownerEmail
+            ? getDocs(query(collection(db, 'quizzes'), where('createdBy', '==', ownerEmail)))
+            : Promise.resolve(null),
+        ]);
+
+        const merged = new Map<string, any>();
+        for (const snap of snapshots) {
+          if (!snap) continue;
+          for (const d of snap.docs) {
+            merged.set(d.id, d);
+          }
+        }
+
+        const quizzes = Array.from(merged.values()).map((doc: any) => {
+          const data = doc.data();
+          const questionCount = Array.isArray(data.questions)
+            ? data.questions.length
+            : Number(data.totalQuestions || data.settings?.questionsPerGame || 0);
+
+          return {
+            id: doc.id,
+            ...data,
+            questions: data.questions ?? [],
+            totalQuestions: questionCount,
+            createdAt: data.createdAt?.toDate?.() || new Date(),
+          };
+        });
+
+        return NextResponse.json(quizzes, { status: 200 });
+      } catch (fallbackError) {
+        console.error('Client SDK fallback failed for my quizzes:', fallbackError);
+        return NextResponse.json([], { status: 200 });
+      }
     }
 
     // use admin SDK for secure server-side access
