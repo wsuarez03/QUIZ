@@ -26,7 +26,10 @@ export default function Dashboard() {
   }, [status, router]);
 
   const fetchQuizzes = useCallback(async () => {
-    if (!session?.user?.id) return;
+    if (!session?.user) {
+      setIsLoading(false);
+      return;
+    }
 
     try {
       setIsLoading(true);
