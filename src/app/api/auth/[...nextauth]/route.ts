@@ -35,7 +35,6 @@ declare module 'next-auth/jwt' {
 
 const authOptions: NextAuthOptions = {
   secret: normalizeEnv(process.env.NEXTAUTH_SECRET) || undefined,
-  trustHost: true,
   providers: [
     CredentialsProvider({
       name: 'Credentials',
