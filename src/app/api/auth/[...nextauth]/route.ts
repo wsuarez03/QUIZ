@@ -100,15 +100,22 @@ const authOptions: NextAuthOptions = {
             }
           );
 
-          const signInData = await signInResponse.json();
+          const rawBody = await signInResponse.text();
+          let signInData: any = null;
+          try {
+            signInData = rawBody ? JSON.parse(rawBody) : null;
+          } catch {
+            throw new Error(`FIREBASE_AUTH_ERROR:INVALID_RESPONSE_${signInResponse.status}`);
+          }
 
           if (!signInResponse.ok || signInData.error) {
             const firebaseErrorCode = signInData.error?.message;
             if (firebaseErrorCode === 'INVALID_PASSWORD' || firebaseErrorCode === 'EMAIL_NOT_FOUND') {
               return null;
             }
-            console.error('Firebase signIn error code:', firebaseErrorCode);
-            throw new Error(`FIREBASE_AUTH_ERROR:${firebaseErrorCode || 'UNKNOWN'}`);
+            const code = firebaseErrorCode || `HTTP_${signInResponse.status}`;
+            console.error('Firebase signIn error code:', code);
+            throw new Error(`FIREBASE_AUTH_ERROR:${code}`);
           }
 
           if (!isConfigured || !adminDbInstance) {
@@ -157,11 +164,17 @@ const authOptions: NextAuthOptions = {
           ) {
             throw error;
           }
+          const causeCode = error?.cause?.code || '';
           if (
             msg.includes('fetch failed') ||
             msg.includes('ECONNRESET') ||
             msg.includes('ETIMEDOUT') ||
-            msg.includes('ENOTFOUND')
+            msg.includes('ENOTFOUND') ||
+            msg.includes('Client network socket disconnected') ||
+            msg.includes('TLS') ||
+            causeCode === 'ECONNRESET' ||
+            causeCode === 'ETIMEDOUT' ||
+            causeCode === 'ENOTFOUND'
           ) {
             throw new Error('FIREBASE_AUTH_ERROR:NETWORK_ERROR');
           }
