@@ -48,6 +48,8 @@ const authOptions: NextAuthOptions = {
         }
 
         try {
+          const email = credentials.email.trim().toLowerCase();
+          const password = credentials.password;
           const firebaseApiKey = normalizeEnv(process.env.NEXT_PUBLIC_FIREBASE_API_KEY);
 
           // If Firebase API key is missing, only allow mock auth in local development.
@@ -57,7 +59,7 @@ const authOptions: NextAuthOptions = {
             }
 
             const mockUser = mockUsers.find(
-              (user) => user.email === credentials.email
+              (user) => user.email === email
             );
 
             if (!mockUser) {
@@ -68,7 +70,7 @@ const authOptions: NextAuthOptions = {
             // In production, always hash and compare
             const isValidPassword =
               credentials.password === 'password123' ||
-              (await bcrypt.compare(credentials.password, mockUser.password));
+              (await bcrypt.compare(password, mockUser.password));
 
             if (!isValidPassword) {
               return null;
@@ -91,8 +93,8 @@ const authOptions: NextAuthOptions = {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
-                email: credentials.email,
-                password: credentials.password,
+                email,
+                password,
                 returnSecureToken: true,
               }),
             }
@@ -101,24 +103,26 @@ const authOptions: NextAuthOptions = {
           const signInData = await signInResponse.json();
 
           if (!signInResponse.ok || signInData.error) {
-            if (signInData.error?.message === 'INVALID_PASSWORD' || signInData.error?.message === 'EMAIL_NOT_FOUND') {
+            const firebaseErrorCode = signInData.error?.message;
+            if (firebaseErrorCode === 'INVALID_PASSWORD' || firebaseErrorCode === 'EMAIL_NOT_FOUND') {
               return null;
             }
-            throw new Error(signInData.error?.message || 'Authentication failed');
+            console.error('Firebase signIn error code:', firebaseErrorCode);
+            throw new Error(`FIREBASE_AUTH_ERROR:${firebaseErrorCode || 'UNKNOWN'}`);
           }
 
           if (!isConfigured || !adminDbInstance) {
             return {
               id: signInData.localId,
-              email: credentials.email,
-              name: credentials.email.split('@')[0],
+              email,
+              name: email.split('@')[0],
               image: null,
             };
           }
 
           // Get user profile from Firestore
           const usersRef = adminDbInstance.collection('users');
-          const q = usersRef.where('email', '==', credentials.email);
+          const q = usersRef.where('email', '==', email);
           const querySnapshot = await q.get();
 
           if (querySnapshot.empty) {
@@ -126,8 +130,8 @@ const authOptions: NextAuthOptions = {
             console.log('User authenticated but no Firestore profile found');
             return {
               id: signInData.localId,
-              email: credentials.email,
-              name: credentials.email.split('@')[0],
+              email,
+              name: email.split('@')[0],
               image: null,
             };
           }
@@ -147,9 +151,12 @@ const authOptions: NextAuthOptions = {
 
           // if Firestore call failed due to OpenSSL/gRPC issue, fall back to mock data
           const msg = error?.message || '';
+          if (msg.startsWith('FIREBASE_AUTH_ERROR:')) {
+            throw error;
+          }
           if (msg.includes('DECODER routines::unsupported') || msg.includes('Getting metadata from plugin failed')) {
             console.warn('Firestore query failed, falling back to mock authentication');
-            const mockUser = mockUsers.find((u) => u.email === credentials.email);
+            const mockUser = mockUsers.find((u) => u.email === credentials.email.trim().toLowerCase());
             if (mockUser) {
               const isValid = await bcrypt.compare(credentials.password, mockUser.password);
               if (isValid) {
