@@ -8,10 +8,15 @@ import { collection, query, where, getDocs } from 'firebase/firestore';
 
 export async function GET(request: NextRequest) {
   try {
-    // If Firebase Admin is not configured, use mock data
-    if (!isConfigured) {
+    // Use mock data only in local development.
+    if (!isConfigured && process.env.NODE_ENV !== 'production') {
       const publicQuizzes = mockQuizzes.filter((quiz) => quiz.isPublic);
       return NextResponse.json(publicQuizzes, { status: 200 });
+    }
+
+    if (!adminDbInstance) {
+      console.error('Firebase Admin is not available in production for /api/quizzes/public');
+      return NextResponse.json([], { status: 200 });
     }
 
     let quizzes;
@@ -23,18 +28,22 @@ export async function GET(request: NextRequest) {
 
       quizzes = querySnapshot.docs.map((doc: QueryDocumentSnapshot) => {
         const data = doc.data();
+        const questionCount = Array.isArray(data.questions)
+          ? data.questions.length
+          : Number(data.totalQuestions || data.settings?.questionsPerGame || 0);
+
         return {
           id: doc.id,
           ...data,
           // ensure questions array exists even if Firestore document is missing it
           questions: data.questions ?? [],
+          totalQuestions: questionCount,
           createdAt: data.createdAt?.toDate?.() || new Date(),
         };
       });
     } catch (err) {
-      console.error('Firestore public query failed, falling back to mocks:', err);
-      // if the connection fails (e.g. certificate issues) still return mocks
-      quizzes = mockQuizzes.filter((quiz) => quiz.isPublic);
+      console.error('Firestore public query failed:', err);
+      quizzes = [];
     }
 
     return NextResponse.json(quizzes, { status: 200 });

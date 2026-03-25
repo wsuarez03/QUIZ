@@ -5,12 +5,16 @@ import Link from 'next/link';
 import { Button } from './Button';
 
 interface QuizCardProps {
-  quiz: Quiz;
+  quiz: Quiz & { totalQuestions?: number };
   onDelete?: (quizId: string) => void;
   onEdit?: (quizId: string) => void;
 }
 
 export function QuizCard({ quiz, onDelete, onEdit }: QuizCardProps) {
+  const questionCount = Array.isArray(quiz.questions)
+    ? quiz.questions.length
+    : Number(quiz.totalQuestions || 0);
+
   return (
     <div className="bg-white rounded-lg shadow-md hover:shadow-lg transition-shadow overflow-hidden">
       <div className="bg-gradient-to-r from-purple-500 to-blue-500 h-32 flex items-center justify-center">
@@ -23,7 +27,7 @@ export function QuizCard({ quiz, onDelete, onEdit }: QuizCardProps) {
 
         <div className="flex gap-2 mb-4 text-sm text-gray-600">
           <span className="bg-blue-100 text-blue-800 px-3 py-1 rounded-full">
-            {quiz.questions?.length ?? 0} Questions
+            {questionCount} Questions
           </span>
           <span className={`px-3 py-1 rounded-full ${
             quiz.isPublic ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'

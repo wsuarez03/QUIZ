@@ -42,6 +42,7 @@ export interface Quiz {
   createdBy: string;
   createdAt: Date | string;
   questions: Question[];
+  totalQuestions?: number;
   isPublic: boolean;
 
   visibility: "public" | "private" | "link";

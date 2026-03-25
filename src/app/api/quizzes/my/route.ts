@@ -24,12 +24,17 @@ export async function GET(request: NextRequest) {
       return NextResponse.json([], { status: 200 });
     }
 
-    // If Firebase Admin is not configured, use mock data
-    if (!isConfigured) {
+    // Use mock data only in local development.
+    if (!isConfigured && process.env.NODE_ENV !== 'production') {
       const userQuizzes = mockQuizzes.filter((quiz) =>
         quiz.createdBy === ownerId || quiz.createdBy === ownerEmail
       );
       return NextResponse.json(userQuizzes, { status: 200 });
+    }
+
+    if (!adminDbInstance) {
+      console.error('Firebase Admin is not available in production for /api/quizzes/my');
+      return NextResponse.json([], { status: 200 });
     }
 
     // use admin SDK for secure server-side access
@@ -56,11 +61,15 @@ export async function GET(request: NextRequest) {
 
       quizzes = Array.from(merged.values()).map((doc: QueryDocumentSnapshot<DocumentData>) => {
         const data = doc.data();
+        const questionCount = Array.isArray(data.questions)
+          ? data.questions.length
+          : Number(data.totalQuestions || data.settings?.questionsPerGame || 0);
 
         return {
           id: doc.id,
           ...data,
           questions: data.questions ?? [],
+          totalQuestions: questionCount,
           createdAt: data.createdAt?.toDate?.() || new Date(),
         };
       });
