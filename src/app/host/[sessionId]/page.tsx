@@ -48,6 +48,7 @@ export default function HostPage() {
   const question = quiz?.questions?.[currentQuestionIndexInQuiz]
   const answeredCount = players.filter((p) => Number(p?.lastAnsweredQuestion) === Number(session?.currentQuestion)).length
   const everyoneAnswered = players.length > 0 && answeredCount === players.length
+  const canAdvanceManually = players.length > 0 && everyoneAnswered
 
   // 🔹 Escuchar sesión en tiempo real
   useEffect(() => {
@@ -160,9 +161,10 @@ export default function HostPage() {
 
 
   // 🔹 Siguiente pregunta manual
-  const nextQuestion = async () => {
+  const nextQuestion = async (force = false) => {
 
     if (!quiz) return
+    if (!force && !canAdvanceManually) return
 
     const isLast =
       session.currentQuestion >= totalQuestions - 1
@@ -225,7 +227,7 @@ export default function HostPage() {
     const questionTimeLimit = Math.max(1, Number(question?.timeLimit || 20))
     const timer = setTimeout(() => {
 
-      nextQuestion()
+      nextQuestion(true)
 
     }, questionTimeLimit * 1000)
 
@@ -378,11 +380,11 @@ export default function HostPage() {
               Respondieron {answeredCount} / {players.length}
             </div>
 
-            <Button onClick={nextQuestion}>
+            <Button onClick={() => nextQuestion()} disabled={!canAdvanceManually}>
               Siguiente pregunta
             </Button>
 
-            {players.length > 0 && !everyoneAnswered && (
+            {!canAdvanceManually && (
               <p className="mt-2 text-sm text-amber-700">
                 Respondieron {answeredCount} / {players.length}
               </p>

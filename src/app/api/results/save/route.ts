@@ -5,6 +5,8 @@ import { adminDbInstance, isConfigured } from "@/lib/firebaseAdmin";
 import { db } from "@/lib/firebase";
 import { collection, doc, getDoc, getDocs, setDoc } from "firebase/firestore";
 
+let preferAdminForResults = Boolean(isConfigured && adminDbInstance);
+
 export async function POST(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
@@ -23,28 +25,38 @@ export async function POST(req: NextRequest) {
     let quizData: any = null;
     let players: Array<{ id: string; data: any }> = [];
 
-    if (isConfigured && adminDbInstance) {
-      const sessionSnap = await adminDbInstance.collection("game_sessions").doc(sessionId).get();
+    let canUseAdmin = Boolean(preferAdminForResults && adminDbInstance);
 
-      if (!sessionSnap.exists) {
-        return NextResponse.json({ error: "Sesion no encontrada" }, { status: 404 });
+    if (canUseAdmin && adminDbInstance) {
+      try {
+        const sessionSnap = await adminDbInstance.collection("game_sessions").doc(sessionId).get();
+
+        if (!sessionSnap.exists) {
+          return NextResponse.json({ error: "Sesion no encontrada" }, { status: 404 });
+        }
+
+        sessionData = sessionSnap.data() || {};
+
+        if (sessionData.quizId) {
+          const quizSnap = await adminDbInstance.collection("quizzes").doc(sessionData.quizId).get();
+          quizData = quizSnap.exists ? quizSnap.data() : null;
+        }
+
+        const playersSnap = await adminDbInstance
+          .collection("game_sessions")
+          .doc(sessionId)
+          .collection("players")
+          .get();
+
+        players = playersSnap.docs.map((d: any) => ({ id: d.id, data: d.data() }));
+      } catch (adminErr) {
+        canUseAdmin = false;
+        preferAdminForResults = false;
+        console.error("Admin save-results read failed, using client fallback:", adminErr);
       }
+    }
 
-      sessionData = sessionSnap.data() || {};
-
-      if (sessionData.quizId) {
-        const quizSnap = await adminDbInstance.collection("quizzes").doc(sessionData.quizId).get();
-        quizData = quizSnap.exists ? quizSnap.data() : null;
-      }
-
-      const playersSnap = await adminDbInstance
-        .collection("game_sessions")
-        .doc(sessionId)
-        .collection("players")
-        .get();
-
-      players = playersSnap.docs.map((d: any) => ({ id: d.id, data: d.data() }));
-    } else {
+    if (!canUseAdmin) {
       const sessionRef = doc(db, "game_sessions", sessionId);
       const sessionSnap = await getDoc(sessionRef);
 
@@ -102,8 +114,14 @@ export async function POST(req: NextRequest) {
       savedAt: Date.now()
     };
 
-    if (isConfigured && adminDbInstance) {
-      await adminDbInstance.collection("saved_results").doc(docId).set(payload);
+    if (canUseAdmin && adminDbInstance) {
+      try {
+        await adminDbInstance.collection("saved_results").doc(docId).set(payload);
+      } catch (adminWriteErr) {
+        preferAdminForResults = false;
+        console.error("Admin save-results write failed, using client fallback:", adminWriteErr);
+        await setDoc(doc(db, "saved_results", docId), payload);
+      }
     } else {
       await setDoc(doc(db, "saved_results", docId), payload);
     }
