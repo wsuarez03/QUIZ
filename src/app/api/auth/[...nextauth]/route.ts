@@ -1,6 +1,5 @@
 import NextAuth, { type NextAuthOptions, type DefaultSession } from 'next-auth';
 import CredentialsProvider from 'next-auth/providers/credentials';
-import { adminDbInstance, isConfigured } from '@/lib/firebaseAdmin';
 import { mockUsers } from '@/lib/mockData';
 import bcrypt from 'bcryptjs';
 
@@ -118,39 +117,11 @@ const authOptions: NextAuthOptions = {
             throw new Error(`FIREBASE_AUTH_ERROR:${code}`);
           }
 
-          if (!isConfigured || !adminDbInstance) {
-            return {
-              id: signInData.localId,
-              email,
-              name: email.split('@')[0],
-              image: null,
-            };
-          }
-
-          // Get user profile from Firestore
-          const usersRef = adminDbInstance.collection('users');
-          const q = usersRef.where('email', '==', email);
-          const querySnapshot = await q.get();
-
-          if (querySnapshot.empty) {
-            // User authenticated in Firebase but no Firestore profile - create one
-            console.log('User authenticated but no Firestore profile found');
-            return {
-              id: signInData.localId,
-              email,
-              name: email.split('@')[0],
-              image: null,
-            };
-          }
-
-          const userDoc = querySnapshot.docs[0];
-          const userData = userDoc.data();
-
           return {
-            id: userDoc.id,
-            email: userData.email,
-            name: userData.name,
-            image: userData.avatar,
+            id: signInData.localId,
+            email,
+            name: signInData.displayName || email.split('@')[0],
+            image: null,
           };
         } catch (error: any) {
           // Log full error for debugging
@@ -178,24 +149,9 @@ const authOptions: NextAuthOptions = {
           ) {
             throw new Error('FIREBASE_AUTH_ERROR:NETWORK_ERROR');
           }
-          if (msg.includes('DECODER routines::unsupported') || msg.includes('Getting metadata from plugin failed')) {
-            console.warn('Firestore query failed, falling back to mock authentication');
-            const mockUser = mockUsers.find((u) => u.email === credentials.email.trim().toLowerCase());
-            if (mockUser) {
-              const isValid = await bcrypt.compare(credentials.password, mockUser.password);
-              if (isValid) {
-                return {
-                  id: mockUser.id,
-                  email: mockUser.email,
-                  name: mockUser.name,
-                  image: mockUser.avatar,
-                };
-              }
-            }
-          }
 
-          // For any other error, fail authentication
-          throw new Error('Authentication service unavailable');
+          // For any other error, fail with explicit code for easier diagnosis.
+          throw new Error('FIREBASE_AUTH_ERROR:UNEXPECTED');
         }
       },
     }),

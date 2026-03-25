@@ -45,6 +45,8 @@ export default function LoginPage() {
           setError('Firebase rechazo la solicitud (HTTP 403). Revisa restricciones de la API key.');
         } else if (result.error.includes('FIREBASE_AUTH_ERROR:INVALID_RESPONSE_')) {
           setError('Firebase devolvio una respuesta no valida. Revisa configuracion de proyecto/API key.');
+        } else if (result.error.includes('FIREBASE_AUTH_ERROR:UNEXPECTED')) {
+          setError('Error inesperado de autenticacion en servidor. Revisa logs de Vercel Functions.');
         } else {
           setError(`No fue posible iniciar sesion (${result.error}).`);
         }
