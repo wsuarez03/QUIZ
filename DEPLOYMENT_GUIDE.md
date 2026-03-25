@@ -65,6 +65,9 @@ NEXTAUTH_SECRET=your-secret-key-here-min-32-characters
 NEXTAUTH_URL=http://localhost:3000
 ```
 
+> Nota: `NEXTAUTH_URL` solo debe ser `http://localhost:3000` en desarrollo local.
+> En Vercel debes usar `https://tu-proyecto.vercel.app` o tendras errores `401` en `/api/auth/callback/credentials`.
+
 ### 4. Ejecutar Localmente
 
 ```bash

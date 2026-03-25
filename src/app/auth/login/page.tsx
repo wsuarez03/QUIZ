@@ -26,7 +26,11 @@ export default function LoginPage() {
       });
 
       if (result?.error) {
-        setError(result.error);
+        if (result.error === 'CredentialsSignin') {
+          setError('Email o contrasena incorrectos.');
+        } else {
+          setError('No fue posible iniciar sesion. Intentalo de nuevo.');
+        }
       } else {
         router.push('/dashboard');
       }

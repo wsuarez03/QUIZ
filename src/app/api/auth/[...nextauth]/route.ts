@@ -3,7 +3,6 @@ import CredentialsProvider from 'next-auth/providers/credentials';
 import { adminDbInstance, isConfigured } from '@/lib/firebaseAdmin';
 import { mockUsers } from '@/lib/mockData';
 import bcrypt from 'bcryptjs';
-import { JWT } from 'next-auth/jwt';
 
 function normalizeEnv(value?: string) {
   if (!value) return '';
@@ -35,6 +34,8 @@ declare module 'next-auth/jwt' {
 }
 
 const authOptions: NextAuthOptions = {
+  secret: normalizeEnv(process.env.NEXTAUTH_SECRET) || undefined,
+  trustHost: true,
   providers: [
     CredentialsProvider({
       name: 'Credentials',
@@ -44,7 +45,7 @@ const authOptions: NextAuthOptions = {
       },
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) {
-          throw new Error('Invalid credentials');
+          return null;
         }
 
         try {
@@ -55,7 +56,7 @@ const authOptions: NextAuthOptions = {
             );
 
             if (!mockUser) {
-              throw new Error('User not found');
+              return null;
             }
 
             // For demo purposes, accept the password as-is or match against mock
@@ -65,7 +66,7 @@ const authOptions: NextAuthOptions = {
               (await bcrypt.compare(credentials.password, mockUser.password));
 
             if (!isValidPassword) {
-              throw new Error('Invalid password');
+              return null;
             }
 
             console.log('✓ Mock authentication successful for:', credentials.email);
@@ -80,7 +81,7 @@ const authOptions: NextAuthOptions = {
           // Use Firebase REST API to verify password
           const firebaseApiKey = normalizeEnv(process.env.NEXT_PUBLIC_FIREBASE_API_KEY);
           if (!firebaseApiKey) {
-            throw new Error('Firebase API key not configured');
+            throw new Error('Server misconfiguration: NEXT_PUBLIC_FIREBASE_API_KEY is missing');
           }
 
           const signInResponse = await fetch(
@@ -99,11 +100,8 @@ const authOptions: NextAuthOptions = {
           const signInData = await signInResponse.json();
 
           if (!signInResponse.ok || signInData.error) {
-            if (signInData.error?.message === 'INVALID_PASSWORD') {
-              throw new Error('Invalid password');
-            }
-            if (signInData.error?.message === 'EMAIL_NOT_FOUND') {
-              throw new Error('User not found');
+            if (signInData.error?.message === 'INVALID_PASSWORD' || signInData.error?.message === 'EMAIL_NOT_FOUND') {
+              return null;
             }
             throw new Error(signInData.error?.message || 'Authentication failed');
           }
@@ -156,7 +154,7 @@ const authOptions: NextAuthOptions = {
           }
 
           // For any other error, fail authentication
-          throw new Error('Authentication failed');
+          throw new Error('Authentication service unavailable');
         }
       },
     }),
