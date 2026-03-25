@@ -1,5 +1,6 @@
 import { collection, addDoc, serverTimestamp, getDoc, doc, query, where, getDocs } from "firebase/firestore"
 import { db } from "@/lib/firebase"
+import { adminDbInstance } from "@/lib/firebaseAdmin"
 import { NextResponse } from "next/server"
 import { mockQuizzes, mockQuestions } from "@/lib/mockData"
 
@@ -30,19 +31,28 @@ export async function POST(req: Request) {
       )
     }
 
-    // 1️⃣ validar que el quiz exista (Firestore o mocks)
-    const quizRef = doc(db, "quizzes", quizId)
-    const quizSnap = await getDoc(quizRef)
-    const mockQuiz = mockQuizzes.find((q) => q.id === quizId)
+    // 1️⃣ validar que el quiz exista — Admin SDK first, then client SDK, then mocks
+    let quizData: any = null
 
-    if (!quizSnap.exists() && !mockQuiz) {
+    if (adminDbInstance) {
+      const snap = await adminDbInstance.collection("quizzes").doc(quizId).get()
+      if (snap.exists) quizData = snap.data()
+    }
+
+    if (!quizData) {
+      const quizSnap = await getDoc(doc(db, "quizzes", quizId))
+      if (quizSnap.exists()) quizData = quizSnap.data()
+    }
+
+    const mockQuiz = mockQuizzes.find((q) => q.id === quizId)
+    if (!quizData && !mockQuiz) {
       return NextResponse.json(
         { error: `El quiz no existe (quizId=${quizId})` },
         { status: 404 }
       )
     }
 
-    const quizData: any = quizSnap.exists() ? quizSnap.data() : mockQuiz
+    if (!quizData) quizData = mockQuiz
     const mockQuestionList = (mockQuestions as Record<string, any[]>)[quizId] || []
     const quizQuestions = Array.isArray(quizData?.questions) && quizData?.questions?.length
       ? quizData.questions
@@ -68,14 +78,15 @@ export async function POST(req: Request) {
     let codeExists = true
 
     while (codeExists) {
-      const q = query(
-        collection(db, "game_sessions"),
-        where("code", "==", code)
-      )
-
-      const snapshot = await getDocs(q)
-
-      if (snapshot.empty) {
+      let isEmpty = false
+      if (adminDbInstance) {
+        const snap = await adminDbInstance.collection("game_sessions").where("code", "==", code).limit(1).get()
+        isEmpty = snap.empty
+      } else {
+        const snap = await getDocs(query(collection(db, "game_sessions"), where("code", "==", code)))
+        isEmpty = snap.empty
+      }
+      if (isEmpty) {
         codeExists = false
       } else {
         code = generateCode()
@@ -83,23 +94,29 @@ export async function POST(req: Request) {
     }
 
     // 3️⃣ crear sesión
-    const sessionRef = await addDoc(
-      collection(db, "game_sessions"),
-      {
-        quizId,
-        code,
-        status: "waiting",
-        currentQuestion: 0,
-        questionsPerGame,
-        selectedQuestionIndexes,
-        totalQuestions: selectedQuestionIndexes.length,
-        createdAt: serverTimestamp()
-      }
-    )
+    let sessionId: string
+    const sessionPayload = {
+      quizId,
+      code,
+      status: "waiting",
+      currentQuestion: 0,
+      questionsPerGame,
+      selectedQuestionIndexes,
+      totalQuestions: selectedQuestionIndexes.length,
+      createdAt: new Date()
+    }
+
+    if (adminDbInstance) {
+      const ref = await adminDbInstance.collection("game_sessions").add(sessionPayload)
+      sessionId = ref.id
+    } else {
+      const ref = await addDoc(collection(db, "game_sessions"), { ...sessionPayload, createdAt: serverTimestamp() })
+      sessionId = ref.id
+    }
 
     return NextResponse.json({
       success: true,
-      sessionId: sessionRef.id,
+      sessionId,
       code
     })
 

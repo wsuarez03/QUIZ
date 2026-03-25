@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { adminDbInstance } from "@/lib/firebaseAdmin";
 import { db } from "@/lib/firebase";
 
 import {
@@ -14,9 +15,101 @@ import {
 } from "firebase/firestore";
 
 export async function POST(req: NextRequest) {
+  if (adminDbInstance) {
+    return handleWithAdmin(req);
+  }
+  return handleWithClientSDK(req);
+}
 
+async function handleWithAdmin(req: NextRequest): Promise<NextResponse> {
   try {
+    const { sessionId, playerName, playerId, questionIndex, answerIndex } = await req.json();
 
+    const sessionSnap = await adminDbInstance.collection("game_sessions").doc(sessionId).get();
+    if (!sessionSnap.exists) {
+      return NextResponse.json({ error: "session not found" }, { status: 404 });
+    }
+    const session = sessionSnap.data() as any;
+
+    const quizSnap = await adminDbInstance.collection("quizzes").doc(session.quizId).get();
+    if (!quizSnap.exists) {
+      return NextResponse.json({ error: "quiz not found" }, { status: 404 });
+    }
+    const quiz = quizSnap.data() as any;
+
+    const selectedQuestionIndexes: number[] = Array.isArray(session.selectedQuestionIndexes)
+      ? session.selectedQuestionIndexes : [];
+    const sourceQuestionIndex = selectedQuestionIndexes[questionIndex] ?? questionIndex;
+    const question = quiz.questions?.[sourceQuestionIndex];
+
+    if (!question) {
+      return NextResponse.json({ error: "question not found" }, { status: 400 });
+    }
+
+    let correctIndex = -1;
+    if (question.correctAnswerIndex !== undefined) correctIndex = Number(question.correctAnswerIndex);
+    else if (question.correct !== undefined) correctIndex = Number(question.correct);
+    else if (question.correctAnswer) {
+      correctIndex = question.options?.findIndex(
+        (o: string) => o.trim().toLowerCase() === question.correctAnswer.trim().toLowerCase()
+      );
+    }
+
+    const selectedIndex = Number(answerIndex);
+    const correct = correctIndex >= 0 && selectedIndex === Number(correctIndex);
+    let score = 0;
+
+    if (correct) {
+      const now = Date.now();
+      const start = Number(session.questionStartTime || now);
+      const elapsedSeconds = Math.max(0, Math.floor((now - start) / 1000));
+      score = Math.max(0, 100 - elapsedSeconds);
+    }
+
+    await adminDbInstance.collection("answers").add({
+      sessionId, playerName, playerId: playerId || null,
+      questionIndex, sourceQuestionIndex, answerIndex,
+      correct, score, createdAt: Date.now()
+    });
+
+    const playersRef = adminDbInstance.collection("game_sessions").doc(sessionId).collection("players");
+    let playerDocRef: any = null;
+
+    if (playerId) {
+      const candidate = playersRef.doc(playerId);
+      const snap = await candidate.get();
+      if (snap.exists) playerDocRef = candidate;
+    }
+
+    if (!playerDocRef && playerName) {
+      const snap = await playersRef.where("name", "==", playerName).limit(1).get();
+      if (!snap.empty) playerDocRef = snap.docs[0].ref;
+    }
+
+    if (playerDocRef) {
+      const existing = await playerDocRef.get();
+      const existingData = existing.data() || {};
+      if (Number(existingData.lastAnsweredQuestion) === Number(questionIndex)) {
+        return NextResponse.json({ success: true, correct, score: 0, alreadyAnswered: true });
+      }
+      const { FieldValue } = await import("firebase-admin/firestore");
+      await playerDocRef.update({
+        score: FieldValue.increment(score),
+        correctAnswers: correct ? FieldValue.increment(1) : FieldValue.increment(0),
+        lastAnsweredQuestion: Number(questionIndex)
+      });
+    }
+
+    return NextResponse.json({ success: true, correct, score });
+
+  } catch (e) {
+    console.error("Answer error (Admin):", e);
+    return NextResponse.json({ error: "server error" }, { status: 500 });
+  }
+}
+
+async function handleWithClientSDK(req: NextRequest): Promise<NextResponse> {
+  try {
     const { sessionId, playerName, playerId, questionIndex, answerIndex } =
       await req.json();
 
