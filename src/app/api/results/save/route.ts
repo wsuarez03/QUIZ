@@ -3,9 +3,24 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { adminDbInstance, isConfigured } from "@/lib/firebaseAdmin";
 import { db } from "@/lib/firebase";
-import { collection, doc, getDoc, getDocs, setDoc } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, query, setDoc, where } from "firebase/firestore";
 
 let preferAdminForResults = Boolean(isConfigured && adminDbInstance);
+
+function resolveCorrectIndex(question: any): number {
+  if (question?.correctAnswerIndex !== undefined) return Number(question.correctAnswerIndex);
+  if (question?.correct !== undefined) return Number(question.correct);
+  if (question?.correctAnswer !== undefined && !Array.isArray(question?.options)) {
+    const n = Number(question.correctAnswer);
+    if (!Number.isNaN(n)) return n;
+  }
+  if (question?.correctAnswer && Array.isArray(question?.options)) {
+    return question.options.findIndex(
+      (o: string) => String(o).trim().toLowerCase() === String(question.correctAnswer).trim().toLowerCase()
+    );
+  }
+  return -1;
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -24,6 +39,8 @@ export async function POST(req: NextRequest) {
     let sessionData: any = null;
     let quizData: any = null;
     let players: Array<{ id: string; data: any }> = [];
+    let quizQuestions: any[] = [];
+    let answersDocs: any[] = [];
 
     let canUseAdmin = Boolean(preferAdminForResults && adminDbInstance);
 
@@ -40,6 +57,15 @@ export async function POST(req: NextRequest) {
         if (sessionData.quizId) {
           const quizSnap = await adminDbInstance.collection("quizzes").doc(sessionData.quizId).get();
           quizData = quizSnap.exists ? quizSnap.data() : null;
+          quizQuestions = Array.isArray(quizData?.questions) ? quizData.questions : [];
+          if (!quizQuestions.length) {
+            const qSnap = await adminDbInstance
+              .collection("quizzes")
+              .doc(sessionData.quizId)
+              .collection("questions")
+              .get();
+            quizQuestions = qSnap.docs.map((d: any) => d.data());
+          }
         }
 
         const playersSnap = await adminDbInstance
@@ -49,6 +75,12 @@ export async function POST(req: NextRequest) {
           .get();
 
         players = playersSnap.docs.map((d: any) => ({ id: d.id, data: d.data() }));
+
+        const answersSnap = await adminDbInstance
+          .collection("answers")
+          .where("sessionId", "==", sessionId)
+          .get();
+        answersDocs = answersSnap.docs.map((d: any) => d.data());
       } catch (adminErr) {
         canUseAdmin = false;
         preferAdminForResults = false;
@@ -70,21 +102,71 @@ export async function POST(req: NextRequest) {
         const quizRef = doc(db, "quizzes", sessionData.quizId);
         const quizSnap = await getDoc(quizRef);
         quizData = quizSnap.exists() ? quizSnap.data() : null;
+        quizQuestions = Array.isArray((quizData as any)?.questions) ? (quizData as any).questions : [];
+        if (!quizQuestions.length) {
+          const qSnap = await getDocs(collection(db, "quizzes", sessionData.quizId, "questions"));
+          quizQuestions = qSnap.docs.map((d) => d.data());
+        }
       }
 
       const playersSnap = await getDocs(collection(db, "game_sessions", sessionId, "players"));
       players = playersSnap.docs.map((d) => ({ id: d.id, data: d.data() }));
+
+      const answersSnap = await getDocs(query(collection(db, "answers"), where("sessionId", "==", sessionId)));
+      answersDocs = answersSnap.docs.map((d) => d.data());
     }
 
     const sortedPlayers = [...players].sort(
       (a, b) => Number(b.data?.score || 0) - Number(a.data?.score || 0)
     );
 
-    const totalQuestions = Number(quizData?.questions?.length || 0);
+    const totalQuestions = Number(quizQuestions?.length || quizData?.questions?.length || 0);
+    const selectedQuestionIndexes: number[] = Array.isArray(sessionData?.selectedQuestionIndexes)
+      ? sessionData.selectedQuestionIndexes
+      : Array.from({ length: totalQuestions }, (_, i) => i);
 
     const results = sortedPlayers.map((playerDoc, index) => {
       const p = playerDoc.data || {};
       const correctAnswers = Number(p.correctAnswers || 0);
+
+      const playerAnswerMap = new Map<number, any>();
+      answersDocs
+        .filter((a) => {
+          const byId = a?.playerId && String(a.playerId) === String(playerDoc.id);
+          const byName = !a?.playerId && String(a?.playerName || "").trim().toLowerCase() === String(p?.name || "").trim().toLowerCase();
+          return byId || byName;
+        })
+        .forEach((a) => {
+          const srcIdx = Number(a?.sourceQuestionIndex ?? a?.questionIndex);
+          if (!playerAnswerMap.has(srcIdx)) {
+            playerAnswerMap.set(srcIdx, a);
+          }
+        });
+
+      const answers = selectedQuestionIndexes.map((sourceIndex, qPos) => {
+        const q = quizQuestions?.[sourceIndex] || {};
+        const options: string[] = Array.isArray(q?.options) ? q.options : [];
+        const correctIndex = resolveCorrectIndex(q);
+        const answerDoc = playerAnswerMap.get(Number(sourceIndex));
+        const selectedIndex = answerDoc ? Number(answerDoc.answerIndex) : -1;
+        const selectedOption =
+          selectedIndex >= 0 && selectedIndex < options.length
+            ? String(options[selectedIndex])
+            : (answerDoc ? "(Sin opción válida)" : "(Sin responder)");
+        const correctOption =
+          correctIndex >= 0 && correctIndex < options.length
+            ? String(options[correctIndex])
+            : "(No definida)";
+
+        return {
+          questionNumber: qPos + 1,
+          questionText: String(q?.text || q?.question || `Pregunta ${qPos + 1}`),
+          selectedOption,
+          correctOption,
+          isCorrect: answerDoc ? Boolean(answerDoc?.correct) : false,
+          wasAnswered: Boolean(answerDoc),
+        };
+      });
 
       return {
         rank: index + 1,
@@ -94,7 +176,8 @@ export async function POST(req: NextRequest) {
         correctAnswers,
         accuracy: totalQuestions > 0
           ? Math.round((correctAnswers / totalQuestions) * 100)
-          : 0
+          : 0,
+        answers,
       };
     });
 

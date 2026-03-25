@@ -5,6 +5,8 @@ import { adminDbInstance, isConfigured } from "@/lib/firebaseAdmin";
 import { collection, getDocs, query, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 
+let preferAdminForSavedResults = Boolean(isConfigured && adminDbInstance);
+
 export async function GET() {
   try {
     const session = await getServerSession(authOptions);
@@ -15,17 +17,27 @@ export async function GET() {
 
     let data: any[] = [];
 
-    if (isConfigured && adminDbInstance) {
-      const snap = await adminDbInstance
-        .collection("saved_results")
-        .where("ownerId", "==", session.user.id)
-        .get();
+    let canUseAdmin = Boolean(preferAdminForSavedResults && adminDbInstance);
 
-      data = snap.docs.map((d: any) => ({
-        id: d.id,
-        ...d.data()
-      }));
-    } else {
+    if (canUseAdmin && adminDbInstance) {
+      try {
+        const snap = await adminDbInstance
+          .collection("saved_results")
+          .where("ownerId", "==", session.user.id)
+          .get();
+
+        data = snap.docs.map((d: any) => ({
+          id: d.id,
+          ...d.data()
+        }));
+      } catch (adminErr) {
+        canUseAdmin = false;
+        preferAdminForSavedResults = false;
+        console.error("Admin saved-results read failed, using client fallback:", adminErr);
+      }
+    }
+
+    if (!canUseAdmin) {
       const savedQ = query(
         collection(db, "saved_results"),
         where("ownerId", "==", session.user.id)

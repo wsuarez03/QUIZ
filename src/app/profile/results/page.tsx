@@ -15,10 +15,19 @@ type SavedResult = {
   savedAt: number;
   results: Array<{
     rank: number;
+    playerId?: string;
     playerName: string;
     score: number;
     correctAnswers: number;
     accuracy: number;
+    answers?: Array<{
+      questionNumber: number;
+      questionText: string;
+      selectedOption: string;
+      correctOption: string;
+      isCorrect: boolean;
+      wasAnswered: boolean;
+    }>;
   }>;
 };
 
@@ -29,6 +38,16 @@ export default function SavedResultsPage() {
   const [error, setError] = useState('');
   const [items, setItems] = useState<SavedResult[]>([]);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [detailsTitle, setDetailsTitle] = useState('');
+  const [detailsRows, setDetailsRows] = useState<Array<{
+    questionNumber: number;
+    questionText: string;
+    selectedOption: string;
+    correctOption: string;
+    isCorrect: boolean;
+    wasAnswered: boolean;
+  }>>([]);
 
   useEffect(() => {
     if (status === 'unauthenticated') {
@@ -89,6 +108,23 @@ export default function SavedResultsPage() {
     }
   };
 
+  const openDetails = (
+    quizTitle: string,
+    playerName: string,
+    answers: Array<{
+      questionNumber: number;
+      questionText: string;
+      selectedOption: string;
+      correctOption: string;
+      isCorrect: boolean;
+      wasAnswered: boolean;
+    }> | undefined
+  ) => {
+    setDetailsTitle(`${quizTitle} - ${playerName}`);
+    setDetailsRows(Array.isArray(answers) ? answers : []);
+    setDetailsOpen(true);
+  };
+
   return (
     <>
       <Navbar />
@@ -134,6 +170,7 @@ export default function SavedResultsPage() {
                       <th className="border px-3 py-2">Puntos</th>
                       <th className="border px-3 py-2">Correctas</th>
                       <th className="border px-3 py-2">% Acierto</th>
+                      <th className="border px-3 py-2">Detalle</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -144,6 +181,15 @@ export default function SavedResultsPage() {
                         <td className="border px-3 py-2">{row.score}</td>
                         <td className="border px-3 py-2">{row.correctAnswers}</td>
                         <td className="border px-3 py-2">{row.accuracy}%</td>
+                        <td className="border px-3 py-2">
+                          <button
+                            onClick={() => openDetails(item.quizTitle, row.playerName, row.answers)}
+                            className="px-2 py-1 rounded border border-gray-300 hover:bg-gray-100"
+                            title="Ver respuestas"
+                          >
+                            👁 Ver
+                          </button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -152,6 +198,51 @@ export default function SavedResultsPage() {
             </div>
           ))}
         </div>
+
+        {detailsOpen && (
+          <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[80vh] overflow-hidden">
+              <div className="px-4 py-3 border-b flex items-center justify-between">
+                <h3 className="font-semibold text-lg">{detailsTitle}</h3>
+                <button
+                  onClick={() => setDetailsOpen(false)}
+                  className="px-3 py-1 rounded border border-gray-300 hover:bg-gray-100"
+                >
+                  Cerrar
+                </button>
+              </div>
+
+              <div className="p-4 overflow-auto max-h-[65vh]">
+                {detailsRows.length === 0 ? (
+                  <p className="text-gray-600">No hay detalle guardado para este jugador.</p>
+                ) : (
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr>
+                        <th className="border px-3 py-2">#</th>
+                        <th className="border px-3 py-2">Pregunta</th>
+                        <th className="border px-3 py-2">Respondió</th>
+                        <th className="border px-3 py-2">Correcta</th>
+                        <th className="border px-3 py-2">Estado</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {detailsRows.map((d, i) => (
+                        <tr key={`detail-${i}`} className="hover:bg-purple-50">
+                          <td className="border px-3 py-2">{d.questionNumber}</td>
+                          <td className="border px-3 py-2">{d.questionText}</td>
+                          <td className="border px-3 py-2">{d.selectedOption}</td>
+                          <td className="border px-3 py-2">{d.correctOption}</td>
+                          <td className="border px-3 py-2">{d.wasAnswered ? (d.isCorrect ? '✅ Correcta' : '❌ Incorrecta') : 'Sin responder'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
       </main>
     </>
   );
