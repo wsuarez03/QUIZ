@@ -36,24 +36,11 @@ export async function GET(request: NextRequest) {
       console.warn('Firebase Admin is not available, using client SDK fallback for my quizzes');
 
       try {
-        const snapshots = await Promise.all([
-          ownerId
-            ? getDocs(query(collection(db, 'quizzes'), where('createdBy', '==', ownerId)))
-            : Promise.resolve(null),
-          ownerEmail
-            ? getDocs(query(collection(db, 'quizzes'), where('createdBy', '==', ownerEmail)))
-            : Promise.resolve(null),
-        ]);
+        const snap = await getDocs(collection(db, 'quizzes'));
+        const ownerIdLc = String(ownerId || '').toLowerCase();
+        const ownerEmailLc = String(ownerEmail || '').toLowerCase();
 
-        const merged = new Map<string, any>();
-        for (const snap of snapshots) {
-          if (!snap) continue;
-          for (const d of snap.docs) {
-            merged.set(d.id, d);
-          }
-        }
-
-        const quizzes = Array.from(merged.values()).map((doc: any) => {
+        const quizzes = snap.docs.map((doc: any) => {
           const data = doc.data();
           const questionCount = Array.isArray(data.questions)
             ? data.questions.length
@@ -66,6 +53,9 @@ export async function GET(request: NextRequest) {
             totalQuestions: questionCount,
             createdAt: data.createdAt?.toDate?.() || new Date(),
           };
+        }).filter((quiz: any) => {
+          const createdByLc = String(quiz.createdBy || '').toLowerCase();
+          return createdByLc === ownerIdLc || createdByLc === ownerEmailLc;
         });
 
         return NextResponse.json(quizzes, { status: 200 });
@@ -79,25 +69,11 @@ export async function GET(request: NextRequest) {
     let quizzes: any[] = [];
 
     try {
-      const snapshots = await Promise.all([
-        ownerId
-          ? adminDbInstance.collection('quizzes').where('createdBy', '==', ownerId).get()
-          : Promise.resolve(null),
-        ownerEmail
-          ? adminDbInstance.collection('quizzes').where('createdBy', '==', ownerEmail).get()
-          : Promise.resolve(null),
-      ]);
+      const allSnapshot = await adminDbInstance.collection('quizzes').get();
+      const ownerIdLc = String(ownerId || '').toLowerCase();
+      const ownerEmailLc = String(ownerEmail || '').toLowerCase();
 
-      const merged = new Map<string, QueryDocumentSnapshot<DocumentData>>();
-
-      for (const snap of snapshots) {
-        if (!snap) continue;
-        for (const d of snap.docs) {
-          merged.set(d.id, d);
-        }
-      }
-
-      quizzes = Array.from(merged.values()).map((doc: QueryDocumentSnapshot<DocumentData>) => {
+      quizzes = allSnapshot.docs.map((doc: QueryDocumentSnapshot<DocumentData>) => {
         const data = doc.data();
         const questionCount = Array.isArray(data.questions)
           ? data.questions.length
@@ -110,6 +86,9 @@ export async function GET(request: NextRequest) {
           totalQuestions: questionCount,
           createdAt: data.createdAt?.toDate?.() || new Date(),
         };
+      }).filter((quiz: any) => {
+        const createdByLc = String(quiz.createdBy || '').toLowerCase();
+        return createdByLc === ownerIdLc || createdByLc === ownerEmailLc;
       });
 
     } catch (err) {

@@ -17,8 +17,7 @@ export async function GET(request: NextRequest) {
     if (!adminDbInstance) {
       console.warn('Firebase Admin is not available, using client SDK fallback for public quizzes');
       try {
-        const clientQuery = query(collection(db, 'quizzes'), where('isPublic', '==', true));
-        const clientSnap = await getDocs(clientQuery);
+        const clientSnap = await getDocs(collection(db, 'quizzes'));
 
         const clientQuizzes = clientSnap.docs.map((doc) => {
           const data: any = doc.data();
@@ -33,7 +32,7 @@ export async function GET(request: NextRequest) {
             totalQuestions: questionCount,
             createdAt: data.createdAt?.toDate?.() || new Date(),
           };
-        });
+        }).filter((quiz) => quiz.isPublic === true || quiz.isPublic === 'true');
 
         return NextResponse.json(clientQuizzes, { status: 200 });
       } catch (fallbackError) {
@@ -46,7 +45,6 @@ export async function GET(request: NextRequest) {
     try {
       const querySnapshot = await adminDbInstance
         .collection('quizzes')
-        .where('isPublic', '==', true)
         .get();
 
       quizzes = querySnapshot.docs.map((doc: QueryDocumentSnapshot) => {
@@ -63,7 +61,7 @@ export async function GET(request: NextRequest) {
           totalQuestions: questionCount,
           createdAt: data.createdAt?.toDate?.() || new Date(),
         };
-      });
+      }).filter((quiz) => quiz.isPublic === true || quiz.isPublic === 'true');
     } catch (err) {
       console.error('Firestore public query failed:', err);
       quizzes = [];
