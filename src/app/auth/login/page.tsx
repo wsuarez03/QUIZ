@@ -37,6 +37,8 @@ export default function LoginPage() {
           setError('Demasiados intentos. Espera unos minutos y vuelve a intentar.');
         } else if (result.error.includes('FIREBASE_AUTH_ERROR:USER_DISABLED')) {
           setError('Este usuario fue deshabilitado en Firebase Authentication.');
+        } else if (result.error.includes('FIREBASE_AUTH_ERROR:NETWORK_ERROR')) {
+          setError('No se pudo conectar con Firebase Auth desde el servidor. Revisa red/restricciones de API key.');
         } else {
           setError(`No fue posible iniciar sesion (${result.error}).`);
         }

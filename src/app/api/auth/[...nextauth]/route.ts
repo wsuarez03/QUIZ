@@ -151,8 +151,19 @@ const authOptions: NextAuthOptions = {
 
           // if Firestore call failed due to OpenSSL/gRPC issue, fall back to mock data
           const msg = error?.message || '';
-          if (msg.startsWith('FIREBASE_AUTH_ERROR:')) {
+          if (
+            msg.startsWith('FIREBASE_AUTH_ERROR:') ||
+            msg.startsWith('Server misconfiguration:')
+          ) {
             throw error;
+          }
+          if (
+            msg.includes('fetch failed') ||
+            msg.includes('ECONNRESET') ||
+            msg.includes('ETIMEDOUT') ||
+            msg.includes('ENOTFOUND')
+          ) {
+            throw new Error('FIREBASE_AUTH_ERROR:NETWORK_ERROR');
           }
           if (msg.includes('DECODER routines::unsupported') || msg.includes('Getting metadata from plugin failed')) {
             console.warn('Firestore query failed, falling back to mock authentication');
