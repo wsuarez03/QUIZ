@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminDbInstance, isConfigured } from '@/lib/firebaseAdmin';
 import { db } from '@/lib/firebase';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { getMockQuizById, updateMockQuiz } from '@/lib/mockStore';
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
@@ -142,84 +142,6 @@ export async function PUT(
       return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
     }
 
-    if (!isConfigured && process.env.NODE_ENV !== 'production') {
-      const existing = getMockQuizById(quizId);
-      if (!existing) {
-        return NextResponse.json({ message: 'Quiz not found' }, { status: 404 });
-      }
-
-      const isOwner =
-        existing.createdBy === session.user.id ||
-        existing.createdBy === session.user.email;
-
-      if (!isOwner) {
-        return NextResponse.json(
-          { message: 'Not authorized to edit this quiz' },
-          { status: 403 }
-        );
-      }
-
-      const body = await request.json();
-      const title = String(body?.title || '').trim();
-      const description = String(body?.description || '').trim();
-      const isPublic = Boolean(body?.isPublic);
-      const questions = Array.isArray(body?.questions) ? body.questions : [];
-      const settings = body?.settings || {};
-
-      if (!title || !questions.length) {
-        return NextResponse.json(
-          { message: 'Title and questions are required' },
-          { status: 400 }
-        );
-      }
-
-      const questionsPerGame = Math.min(
-        Math.max(1, Number(settings?.questionsPerGame || questions.length)),
-        questions.length
-      );
-
-      updateMockQuiz(quizId, {
-        title,
-        description,
-        isPublic,
-        visibility: isPublic ? 'public' : 'private',
-        questions,
-        settings: {
-          ...existing.settings,
-          ...settings,
-          questionsPerGame,
-        },
-      });
-
-      return NextResponse.json({ message: 'Quiz updated successfully (mock)' }, { status: 200 });
-    }
-
-    if (!isConfigured) {
-      return NextResponse.json(
-        { message: 'Editar quizzes mock no esta habilitado en produccion' },
-        { status: 403 }
-      );
-    }
-
-    const quizRef = adminDbInstance.collection('quizzes').doc(quizId);
-    const quizSnapshot = await quizRef.get();
-
-    if (!quizSnapshot.exists) {
-      return NextResponse.json({ message: 'Quiz not found' }, { status: 404 });
-    }
-
-    const existing = quizSnapshot.data() || {};
-    const isOwner =
-      existing.createdBy === session.user.id ||
-      existing.createdBy === session.user.email;
-
-    if (!isOwner) {
-      return NextResponse.json(
-        { message: 'Not authorized to edit this quiz' },
-        { status: 403 }
-      );
-    }
-
     const body = await request.json();
     const title = String(body?.title || '').trim();
     const description = String(body?.description || '').trim();
@@ -239,21 +161,127 @@ export async function PUT(
       questions.length
     );
 
-    await quizRef.update({
-      title,
-      description,
-      isPublic,
-      visibility: isPublic ? 'public' : 'private',
-      questions,
-      settings: {
-        ...existing.settings,
-        ...settings,
-        questionsPerGame,
-      },
-      updatedAt: new Date(),
-    });
+    if (!isConfigured && process.env.NODE_ENV !== 'production') {
+      const existing = getMockQuizById(quizId);
+      if (!existing) {
+        return NextResponse.json({ message: 'Quiz not found' }, { status: 404 });
+      }
 
-    return NextResponse.json({ message: 'Quiz updated successfully' }, { status: 200 });
+      const isOwner =
+        existing.createdBy === session.user.id ||
+        existing.createdBy === session.user.email;
+
+      if (!isOwner) {
+        return NextResponse.json(
+          { message: 'Not authorized to edit this quiz' },
+          { status: 403 }
+        );
+      }
+
+      updateMockQuiz(quizId, {
+        title,
+        description,
+        isPublic,
+        visibility: isPublic ? 'public' : 'private',
+        questions,
+        settings: {
+          ...existing.settings,
+          ...settings,
+          questionsPerGame,
+        },
+      });
+
+      return NextResponse.json({ message: 'Quiz updated successfully (mock)' }, { status: 200 });
+    }
+
+    // Prefer Admin SDK when available.
+    if (isConfigured && adminDbInstance) {
+      try {
+        const quizRef = adminDbInstance.collection('quizzes').doc(quizId);
+        const quizSnapshot = await quizRef.get();
+
+        if (!quizSnapshot.exists) {
+          return NextResponse.json({ message: 'Quiz not found' }, { status: 404 });
+        }
+
+        const existing = quizSnapshot.data() || {};
+        const isOwner =
+          existing.createdBy === session.user.id ||
+          existing.createdBy === session.user.email;
+
+        if (!isOwner) {
+          return NextResponse.json(
+            { message: 'Not authorized to edit this quiz' },
+            { status: 403 }
+          );
+        }
+
+        await quizRef.update({
+          title,
+          description,
+          isPublic,
+          visibility: isPublic ? 'public' : 'private',
+          questions,
+          settings: {
+            ...existing.settings,
+            ...settings,
+            questionsPerGame,
+          },
+          updatedAt: new Date(),
+        });
+
+        return NextResponse.json({ message: 'Quiz updated successfully' }, { status: 200 });
+      } catch (adminErr) {
+        console.warn('Admin SDK failed updating quiz, trying client fallback:', adminErr);
+      }
+    }
+
+    // Client SDK fallback for environments where Admin SDK is unavailable.
+    try {
+      const quizRef = doc(db, 'quizzes', quizId);
+      const quizSnapshot = await getDoc(quizRef);
+
+      if (!quizSnapshot.exists()) {
+        return NextResponse.json({ message: 'Quiz not found' }, { status: 404 });
+      }
+
+      const existing = quizSnapshot.data() || {};
+      const isOwner =
+        existing.createdBy === session.user.id ||
+        existing.createdBy === session.user.email;
+
+      if (!isOwner) {
+        return NextResponse.json(
+          { message: 'Not authorized to edit this quiz' },
+          { status: 403 }
+        );
+      }
+
+      await updateDoc(quizRef, {
+        title,
+        description,
+        isPublic,
+        visibility: isPublic ? 'public' : 'private',
+        questions,
+        settings: {
+          ...existing.settings,
+          ...settings,
+          questionsPerGame,
+        },
+        updatedAt: new Date(),
+      });
+
+      return NextResponse.json({ message: 'Quiz updated successfully' }, { status: 200 });
+    } catch (clientErr: any) {
+      const msg = String(clientErr?.message || clientErr || '');
+      if (msg.includes('permission') || msg.includes('PERMISSION_DENIED')) {
+        return NextResponse.json(
+          { message: 'No autorizado para editar este quiz en Firestore' },
+          { status: 403 }
+        );
+      }
+      throw clientErr;
+    }
   } catch (error) {
     console.error('Error updating quiz:', error);
     return NextResponse.json(
