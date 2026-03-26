@@ -4,7 +4,7 @@ import { db } from '@/lib/firebase';
 import { doc, deleteDoc, getDoc } from 'firebase/firestore';
 import { isConfigured, adminDbInstance } from '@/lib/firebaseAdmin';
 
-let preferAdminForDelete = true;
+let preferAdminForDelete = Boolean(isConfigured && adminDbInstance);
 
 export async function DELETE(request: Request) {
   try {
@@ -22,13 +22,13 @@ export async function DELETE(request: Request) {
       return Response.json({ error: 'ID de resultado no proporcionado' }, { status: 400 });
     }
 
+    let canUseAdmin = Boolean(preferAdminForDelete && adminDbInstance);
     let resultData: any = null;
-    let deleted = false;
 
-    // Intentar usar Admin SDK si está configurado y preferido
-    if (isConfigured && adminDbInstance && preferAdminForDelete) {
+    // Intentar Admin SDK primero
+    if (canUseAdmin) {
       try {
-        const resultRef = adminDbInstance.collection('saved_results').doc(resultId);
+        const resultRef = adminDbInstance!.collection('saved_results').doc(resultId);
         const resultSnap = await resultRef.get();
 
         if (!resultSnap.exists) {
@@ -43,17 +43,18 @@ export async function DELETE(request: Request) {
           return Response.json({ error: 'No tienes permiso para eliminar este resultado' }, { status: 403 });
         }
 
-        // Eliminar
+        // Eliminar con Admin SDK
         await resultRef.delete();
-        deleted = true;
+        return Response.json({ success: true, message: 'Resultado eliminado correctamente' });
       } catch (adminError: any) {
-        console.warn('[DELETE] Admin SDK failed, fallback to Client SDK:', adminError?.message || adminError);
+        canUseAdmin = false;
         preferAdminForDelete = false;
+        console.warn('[DELETE] Admin SDK failed, using Client SDK fallback:', adminError?.message || adminError);
       }
     }
 
-    // Fallback a Client SDK si Admin no se usó o falló
-    if (!deleted) {
+    // Fallback a Client SDK
+    if (!canUseAdmin) {
       const resultRef = doc(db, 'saved_results', resultId);
       const resultSnap = await getDoc(resultRef);
 
@@ -69,11 +70,11 @@ export async function DELETE(request: Request) {
         return Response.json({ error: 'No tienes permiso para eliminar este resultado' }, { status: 403 });
       }
 
-      // Eliminar
+      // Eliminar con Client SDK
       await deleteDoc(resultRef);
+      return Response.json({ success: true, message: 'Resultado eliminado correctamente' });
     }
 
-    return Response.json({ success: true, message: 'Resultado eliminado correctamente' });
   } catch (error: any) {
     console.error('[DELETE] Error eliminando resultado:', error);
     return Response.json(
