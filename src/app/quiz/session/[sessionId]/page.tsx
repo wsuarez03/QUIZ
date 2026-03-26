@@ -65,11 +65,14 @@ export default function GameSession({ params }: { params: Promise<{ sessionId: s
       console.log("[JUGADOR] Estado de la sesión:", data?.status);
       if (data?.status === "playing") {
         console.log("[JUGADOR] Redirigiendo a play");
-        router.push(`/quiz/session/${sessionId}/play?name=${encodeURIComponent(name || "")}`);
+        const pid = playerId || localStorage.getItem("playerId") || "";
+        const qs = new URLSearchParams({ name: name || "" });
+        if (pid) qs.set("pid", pid);
+        router.push(`/quiz/session/${sessionId}/play?${qs.toString()}`);
       }
     });
     return () => unsub();
-  }, [sessionId, router, name]);
+  }, [sessionId, router, name, playerId]);
 
   if (loading) {
     return <div className="p-10"><p>Entrando al juego...</p></div>;

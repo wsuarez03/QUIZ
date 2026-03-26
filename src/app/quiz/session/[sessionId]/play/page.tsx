@@ -14,6 +14,7 @@ export default function PlaySessionPage() {
 
   const sessionId = params.sessionId as string;
   const playerName = search.get("name") || "";
+  const playerIdFromQuery = search.get("pid");
 
   const [quiz, setQuiz] = useState<any>(null);
   const [session, setSession] = useState<any>(null);
@@ -169,11 +170,19 @@ export default function PlaySessionPage() {
 
   // recuperar playerId guardado
   useEffect(() => {
+    if (playerIdFromQuery) {
+      setPlayerId(playerIdFromQuery);
+      localStorage.setItem("playerId", playerIdFromQuery);
+      localStorage.setItem("sessionId", sessionId);
+      return;
+    }
+
     const storedPlayerId = localStorage.getItem("playerId");
-    if (storedPlayerId) {
+    const storedSessionId = localStorage.getItem("sessionId");
+    if (storedPlayerId && storedSessionId === sessionId) {
       setPlayerId(storedPlayerId);
     }
-  }, []);
+  }, [playerIdFromQuery, sessionId]);
 
   // reset cuando cambia pregunta
   useEffect(() => {

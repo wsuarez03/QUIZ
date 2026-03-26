@@ -24,6 +24,56 @@ type AnswerBody = {
   answerIndex: number;
 };
 
+function normalizeName(value?: string) {
+  return String(value || "").trim().toLowerCase();
+}
+
+async function resolveAdminPlayerRef(sessionId: string, playerId?: string, playerName?: string) {
+  const playersRef = adminDbInstance.collection("game_sessions").doc(sessionId).collection("players");
+
+  if (playerId) {
+    const candidate = playersRef.doc(playerId);
+    const snap = await candidate.get();
+    if (snap.exists) return candidate;
+  }
+
+  if (playerName) {
+    const byExact = await playersRef.where("name", "==", String(playerName)).limit(1).get();
+    if (!byExact.empty) return byExact.docs[0].ref;
+
+    const all = await playersRef.get();
+    const target = normalizeName(playerName);
+    const byNormalized = all.docs.find((d: any) => normalizeName(d.data()?.name) === target);
+    if (byNormalized) return byNormalized.ref;
+  }
+
+  return null;
+}
+
+async function resolveClientPlayerRef(sessionId: string, playerId?: string, playerName?: string) {
+  if (playerId) {
+    const candidate = doc(db, "game_sessions", sessionId, "players", playerId);
+    const snap = await getDoc(candidate);
+    if (snap.exists()) return candidate;
+  }
+
+  if (playerName) {
+    const exactQ = query(
+      collection(db, "game_sessions", sessionId, "players"),
+      where("name", "==", String(playerName))
+    );
+    const exactSnap = await getDocs(exactQ);
+    if (!exactSnap.empty) return exactSnap.docs[0].ref;
+
+    const allSnap = await getDocs(collection(db, "game_sessions", sessionId, "players"));
+    const target = normalizeName(playerName);
+    const byNormalized = allSnap.docs.find((d) => normalizeName((d.data() as any)?.name) === target);
+    if (byNormalized) return byNormalized.ref;
+  }
+
+  return null;
+}
+
 export async function POST(req: NextRequest) {
   let body: AnswerBody;
   try {
@@ -97,39 +147,30 @@ async function handleWithAdmin(body: AnswerBody): Promise<NextResponse> {
       score = Math.max(0, 100 - elapsedSeconds);
     }
 
+    const playerDocRef: any = await resolveAdminPlayerRef(sessionId, playerId, playerName);
+
+    if (!playerDocRef) {
+      return NextResponse.json({ error: "player not found in session" }, { status: 404 });
+    }
+
+    const existing = await playerDocRef.get();
+    const existingData = existing.data() || {};
+    if (Number(existingData.lastAnsweredQuestion) === Number(questionIndex)) {
+      return NextResponse.json({ success: true, correct, score: 0, alreadyAnswered: true });
+    }
+
     await adminDbInstance.collection("answers").add({
-      sessionId, playerName, playerId: playerId || null,
+      sessionId, playerName, playerId: playerDocRef.id || playerId || null,
       questionIndex, sourceQuestionIndex, answerIndex,
       correct, score, createdAt: Date.now()
     });
 
-    const playersRef = adminDbInstance.collection("game_sessions").doc(sessionId).collection("players");
-    let playerDocRef: any = null;
-
-    if (playerId) {
-      const candidate = playersRef.doc(playerId);
-      const snap = await candidate.get();
-      if (snap.exists) playerDocRef = candidate;
-    }
-
-    if (!playerDocRef && playerName) {
-      const snap = await playersRef.where("name", "==", playerName).limit(1).get();
-      if (!snap.empty) playerDocRef = snap.docs[0].ref;
-    }
-
-    if (playerDocRef) {
-      const existing = await playerDocRef.get();
-      const existingData = existing.data() || {};
-      if (Number(existingData.lastAnsweredQuestion) === Number(questionIndex)) {
-        return NextResponse.json({ success: true, correct, score: 0, alreadyAnswered: true });
-      }
-      const { FieldValue } = await import("firebase-admin/firestore");
-      await playerDocRef.update({
-        score: FieldValue.increment(score),
-        correctAnswers: correct ? FieldValue.increment(1) : FieldValue.increment(0),
-        lastAnsweredQuestion: Number(questionIndex)
-      });
-    }
+    const { FieldValue } = await import("firebase-admin/firestore");
+    await playerDocRef.update({
+      score: FieldValue.increment(score),
+      correctAnswers: correct ? FieldValue.increment(1) : FieldValue.increment(0),
+      lastAnsweredQuestion: Number(questionIndex)
+    });
 
     return NextResponse.json({ success: true, correct, score });
 }
@@ -215,11 +256,25 @@ async function handleWithClientSDK(body: AnswerBody): Promise<NextResponse> {
 
     }
 
-    // guardar respuesta
+    const playerDocRef: any = await resolveClientPlayerRef(sessionId, playerId, playerName);
+
+    if (!playerDocRef) {
+      return NextResponse.json({ error: "player not found in session" }, { status: 404 });
+    }
+
+    const existingPlayer = await getDoc(playerDocRef);
+    const existingPlayerData = (existingPlayer.data() || {}) as any;
+    const alreadyAnsweredCurrent =
+      Number(existingPlayerData.lastAnsweredQuestion) === Number(questionIndex);
+
+    if (alreadyAnsweredCurrent) {
+      return NextResponse.json({ success: true, correct, score: 0, alreadyAnswered: true });
+    }
+
     await addDoc(collection(db, "answers"), {
       sessionId,
       playerName,
-      playerId: playerId || null,
+      playerId: playerDocRef.id || playerId || null,
       questionIndex,
       sourceQuestionIndex,
       answerIndex,
@@ -228,49 +283,11 @@ async function handleWithClientSDK(body: AnswerBody): Promise<NextResponse> {
       createdAt: Date.now()
     });
 
-    // actualizar jugador (preferir playerId, si no buscar por playerName)
-    let playerDocRef: any = null;
-
-    if (playerId) {
-      const candidate = doc(db, "game_sessions", sessionId, "players", playerId);
-      const candidateSnap = await getDoc(candidate);
-      if (candidateSnap.exists()) {
-        playerDocRef = candidate;
-      }
-    }
-
-    if (!playerDocRef && playerName) {
-      const playersQ = query(
-        collection(db, "game_sessions", sessionId, "players"),
-        where("name", "==", playerName)
-      );
-      const playersSnap = await getDocs(playersQ);
-
-      if (!playersSnap.empty) {
-        playerDocRef = playersSnap.docs[0].ref;
-      }
-    }
-
-    if (playerDocRef) {
-      const existingPlayer = await getDoc(playerDocRef);
-      const existingPlayerData = (existingPlayer.data() || {}) as any;
-      const alreadyAnsweredCurrent =
-        Number(existingPlayerData.lastAnsweredQuestion) === Number(questionIndex);
-
-      if (alreadyAnsweredCurrent) {
-        return NextResponse.json({ success: true, correct, score: 0, alreadyAnswered: true });
-      }
-
-      await updateDoc(playerDocRef, {
-        score: increment(score),
-        correctAnswers: correct ? increment(1) : increment(0),
-        lastAnsweredQuestion: Number(questionIndex)
-      });
-    } else {
-      console.warn(
-        `Jugador no encontrado para actualizar score: sessionId=${sessionId}, playerId=${playerId}, playerName=${playerName}`
-      );
-    }
+    await updateDoc(playerDocRef, {
+      score: increment(score),
+      correctAnswers: correct ? increment(1) : increment(0),
+      lastAnsweredQuestion: Number(questionIndex)
+    });
 
     return NextResponse.json({ success: true, correct, score });
 
