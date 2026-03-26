@@ -84,7 +84,11 @@ export async function POST(req: NextRequest) {
 
   if (preferAdminForAnswers && adminDbInstance) {
     try {
-      return await handleWithAdmin(body);
+      // Add 10s timeout for Admin SDK to fail fast on first error
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("Admin SDK timeout")), 10000)
+      );
+      return await Promise.race([handleWithAdmin(body), timeoutPromise]) as NextResponse;
     } catch (e) {
       preferAdminForAnswers = false;
       console.error("Answer error (Admin), switching to client fallback:", e);
