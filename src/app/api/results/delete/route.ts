@@ -4,6 +4,8 @@ import { db } from '@/lib/firebase';
 import { doc, deleteDoc, getDoc } from 'firebase/firestore';
 import { isConfigured, adminDbInstance } from '@/lib/firebaseAdmin';
 
+let preferAdminForDelete = true;
+
 export async function DELETE(request: Request) {
   try {
     const session = await getServerSession(authOptions);
@@ -21,28 +23,37 @@ export async function DELETE(request: Request) {
     }
 
     let resultData: any = null;
+    let deleted = false;
 
-    // Intentar usar Admin SDK si está configurado
-    if (isConfigured && adminDbInstance) {
-      const resultRef = adminDbInstance.collection('saved_results').doc(resultId);
-      const resultSnap = await resultRef.get();
+    // Intentar usar Admin SDK si está configurado y preferido
+    if (isConfigured && adminDbInstance && preferAdminForDelete) {
+      try {
+        const resultRef = adminDbInstance.collection('saved_results').doc(resultId);
+        const resultSnap = await resultRef.get();
 
-      if (!resultSnap.exists) {
-        return Response.json({ error: 'Resultado no encontrado' }, { status: 404 });
+        if (!resultSnap.exists) {
+          return Response.json({ error: 'Resultado no encontrado' }, { status: 404 });
+        }
+
+        resultData = resultSnap.data();
+
+        // Verificar que el usuario sea propietario
+        if (resultData.ownerId !== session.user.id) {
+          console.warn(`[DELETE] Permission denied: ${resultData.ownerId} !== ${session.user.id}`);
+          return Response.json({ error: 'No tienes permiso para eliminar este resultado' }, { status: 403 });
+        }
+
+        // Eliminar
+        await resultRef.delete();
+        deleted = true;
+      } catch (adminError: any) {
+        console.warn('[DELETE] Admin SDK failed, fallback to Client SDK:', adminError?.message || adminError);
+        preferAdminForDelete = false;
       }
+    }
 
-      resultData = resultSnap.data();
-
-      // Verificar que el usuario sea propietario
-      if (resultData.ownerId !== session.user.id) {
-        console.warn(`[DELETE] Permission denied: ${resultData.ownerId} !== ${session.user.id}`);
-        return Response.json({ error: 'No tienes permiso para eliminar este resultado' }, { status: 403 });
-      }
-
-      // Eliminar
-      await resultRef.delete();
-    } else {
-      // Con Client SDK
+    // Fallback a Client SDK si Admin no se usó o falló
+    if (!deleted) {
       const resultRef = doc(db, 'saved_results', resultId);
       const resultSnap = await getDoc(resultRef);
 
