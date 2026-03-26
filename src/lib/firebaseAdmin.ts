@@ -6,6 +6,8 @@ import admin from 'firebase-admin';
 
 let adminDb: any = null;
 let isConfigured = false;
+// On Vercel, Admin SDK has gRPC issues (DECODER errors), so skip it by default
+const shouldUseAdminSDK = !process.env.VERCEL;
 
 function normalizeEnv(value?: string) {
   if (!value) return '';
@@ -19,7 +21,7 @@ function normalizeEnv(value?: string) {
   return trimmed;
 }
 
-if (!admin.apps.length) {
+if (!admin.apps.length && shouldUseAdminSDK) {
   const projectId = normalizeEnv(process.env.FIREBASE_PROJECT_ID);
   const clientEmail = normalizeEnv(process.env.FIREBASE_CLIENT_EMAIL);
   const privateKeyRaw = normalizeEnv(process.env.FIREBASE_PRIVATE_KEY);
@@ -48,6 +50,8 @@ if (!admin.apps.length) {
       '📝 Firebase Admin SDK not configured. Using mock data for development.'
     );
   }
+} else if (!shouldUseAdminSDK) {
+  console.log('⏭ Skipping Admin SDK on Vercel (gRPC DECODER issues). Using Client SDK fallback.');
 }
 
 export { isConfigured };

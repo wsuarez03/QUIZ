@@ -84,14 +84,14 @@ export async function POST(req: NextRequest) {
 
   if (preferAdminForAnswers && adminDbInstance) {
     try {
-      // Add 10s timeout for Admin SDK to fail fast on first error
+      // Short timeout (2s) to fail fast if Admin SDK hangs (gRPC DECODER error on Vercel)
       const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error("Admin SDK timeout")), 10000)
+        setTimeout(() => reject(new Error("Admin SDK timeout")), 2000)
       );
       return await Promise.race([handleWithAdmin(body), timeoutPromise]) as NextResponse;
     } catch (e) {
       preferAdminForAnswers = false;
-      console.error("Answer error (Admin), switching to client fallback:", e);
+      console.warn("Answer error (Admin), switching to client fallback:", (e as any)?.message || e);
       return handleWithClientSDK(body);
     }
   }
