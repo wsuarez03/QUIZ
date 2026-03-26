@@ -2,7 +2,7 @@ import { collection, addDoc, serverTimestamp, getDoc, doc, query, where, getDocs
 import { db } from "@/lib/firebase"
 import { adminDbInstance } from "@/lib/firebaseAdmin"
 import { NextResponse } from "next/server"
-import { mockQuizzes, mockQuestions } from "@/lib/mockData"
+import { getMockQuizById } from "@/lib/mockStore"
 
 let preferAdminForSessions = Boolean(adminDbInstance)
 
@@ -55,7 +55,7 @@ export async function POST(req: Request) {
       }
     }
 
-    const mockQuiz = mockQuizzes.find((q) => q.id === quizId)
+    const mockQuiz = getMockQuizById(quizId)
     if (!quizData && !mockQuiz) {
       return NextResponse.json(
         { error: `El quiz no existe (quizId=${quizId})` },
@@ -64,7 +64,7 @@ export async function POST(req: Request) {
     }
 
     if (!quizData) quizData = mockQuiz
-    const mockQuestionList = (mockQuestions as Record<string, any[]>)[quizId] || []
+    const mockQuestionList = Array.isArray(mockQuiz?.questions) ? mockQuiz.questions : []
     const quizQuestions = Array.isArray(quizData?.questions) && quizData?.questions?.length
       ? quizData.questions
       : mockQuestionList

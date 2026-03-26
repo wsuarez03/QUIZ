@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { adminDbInstance, isConfigured } from '@/lib/firebaseAdmin';
 import { db } from '@/lib/firebase';
 import { doc, getDoc } from 'firebase/firestore';
-import { mockQuizzes, mockQuestions } from '@/lib/mockData';
+import { getMockQuizById, updateMockQuiz } from '@/lib/mockStore';
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 
@@ -54,10 +54,9 @@ export async function GET(
 
     // 3. Mock fallback (local dev only)
     if (!isConfigured) {
-      const quiz = mockQuizzes.find((q) => q.id === quizId);
+      const quiz = getMockQuizById(quizId);
       if (quiz) {
-        const questions = (mockQuestions as Record<string, any[]>)[quizId] || [];
-        return NextResponse.json({ ...quiz, questions }, { status: 200 });
+        return NextResponse.json(quiz, { status: 200 });
       }
     }
 
@@ -143,9 +142,61 @@ export async function PUT(
       return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
     }
 
+    if (!isConfigured && process.env.NODE_ENV !== 'production') {
+      const existing = getMockQuizById(quizId);
+      if (!existing) {
+        return NextResponse.json({ message: 'Quiz not found' }, { status: 404 });
+      }
+
+      const isOwner =
+        existing.createdBy === session.user.id ||
+        existing.createdBy === session.user.email;
+
+      if (!isOwner) {
+        return NextResponse.json(
+          { message: 'Not authorized to edit this quiz' },
+          { status: 403 }
+        );
+      }
+
+      const body = await request.json();
+      const title = String(body?.title || '').trim();
+      const description = String(body?.description || '').trim();
+      const isPublic = Boolean(body?.isPublic);
+      const questions = Array.isArray(body?.questions) ? body.questions : [];
+      const settings = body?.settings || {};
+
+      if (!title || !questions.length) {
+        return NextResponse.json(
+          { message: 'Title and questions are required' },
+          { status: 400 }
+        );
+      }
+
+      const questionsPerGame = Math.min(
+        Math.max(1, Number(settings?.questionsPerGame || questions.length)),
+        questions.length
+      );
+
+      updateMockQuiz(quizId, {
+        title,
+        description,
+        isPublic,
+        visibility: isPublic ? 'public' : 'private',
+        questions,
+        settings: {
+          ...existing.settings,
+          ...settings,
+          questionsPerGame,
+        },
+      });
+
+      return NextResponse.json({ message: 'Quiz updated successfully (mock)' }, { status: 200 });
+    }
+
     if (!isConfigured) {
       return NextResponse.json(
-        { message: 'Editar quizzes mock no esta habilitado' },
+        { message: 'Editar quizzes mock no esta habilitado en produccion' },
         { status: 403 }
       );
     }

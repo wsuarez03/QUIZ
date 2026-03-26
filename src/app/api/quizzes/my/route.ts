@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/firebase';
 import { adminDbInstance, isConfigured } from '@/lib/firebaseAdmin';
-import { mockQuizzes } from '@/lib/mockData';
+import { listMockQuizzes } from '@/lib/mockStore';
 // reading via admin to bypass security rules (server-side)
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { QueryDocumentSnapshot, DocumentData } from 'firebase-admin/firestore';
@@ -26,7 +26,7 @@ export async function GET(request: NextRequest) {
 
     // Use mock data only in local development.
     if (!isConfigured && process.env.NODE_ENV !== 'production') {
-      const userQuizzes = mockQuizzes.filter((quiz) =>
+      const userQuizzes = listMockQuizzes().filter((quiz) =>
         quiz.createdBy === ownerId || quiz.createdBy === ownerEmail
       );
       return NextResponse.json(userQuizzes, { status: 200 });

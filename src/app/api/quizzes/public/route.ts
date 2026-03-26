@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/firebase';
 import { QueryDocumentSnapshot } from "firebase-admin/firestore";
 import { adminDbInstance, isConfigured } from '@/lib/firebaseAdmin';
-import { mockQuizzes } from '@/lib/mockData';
+import { listMockQuizzes } from '@/lib/mockStore';
 // server-side read
 import { collection, query, where, getDocs } from 'firebase/firestore';
 
@@ -10,7 +10,7 @@ export async function GET(request: NextRequest) {
   try {
     // Use mock data only in local development.
     if (!isConfigured && process.env.NODE_ENV !== 'production') {
-      const publicQuizzes = mockQuizzes.filter((quiz) => quiz.isPublic);
+      const publicQuizzes = listMockQuizzes().filter((quiz) => quiz.isPublic);
       return NextResponse.json(publicQuizzes, { status: 200 });
     }
 
