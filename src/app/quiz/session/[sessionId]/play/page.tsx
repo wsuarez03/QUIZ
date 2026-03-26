@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { db } from "@/lib/firebase";
-import { collection, doc, onSnapshot } from "firebase/firestore";
+import { collection, doc, onSnapshot, query, where, getDocs } from "firebase/firestore";
 import { Navbar } from "@/components/Navbar";
 
 export default function PlaySessionPage() {
@@ -22,6 +22,7 @@ export default function PlaySessionPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [answerError, setAnswerError] = useState("");
+  const [allAnswers, setAllAnswers] = useState<any[]>([]);
 
   const [selected, setSelected] = useState<number | null>(null);
   const [answered, setAnswered] = useState(false);
@@ -29,6 +30,18 @@ export default function PlaySessionPage() {
 
   const [correct, setCorrect] = useState<boolean | null>(null);
   const [time, setTime] = useState(20);
+  
+  const [showDetailsModal, setShowDetailsModal] = useState(false);
+  const [detailsTitle, setDetailsTitle] = useState("");
+  const [detailsRows, setDetailsRows] = useState<Array<{
+    questionNumber: number;
+    questionText: string;
+    selectedOption: string;
+    correctOption: string;
+    isCorrect: boolean;
+    wasAnswered: boolean;
+  }>>([]);
+  const [loadingDetails, setLoadingDetails] = useState(false);
 
   const selectedQuestionIndexes: number[] = Array.isArray(session?.selectedQuestionIndexes)
     ? session.selectedQuestionIndexes
@@ -81,8 +94,99 @@ export default function PlaySessionPage() {
     setCorrect(typeof result?.correct === "boolean" ? result.correct : null);
   }
 
-  useEffect(() => {
+  async function loadPlayerDetails() {
+    if (!sessionId || !playerName || !quiz) return;
+    
+    try {
+      setLoadingDetails(true);
+      
+      // Cargar todas las respuestas de la sesión desde Firestore
+      const answersRef = collection(db, "answers");
+      const answersQuery = query(answersRef, where("sessionId", "==", sessionId));
+      const answersSnap = await getDocs(answersQuery);
+      const answersData = answersSnap.docs.map(d => d.data());
+      
+      // Filtrar respuestas del jugador actual
+      const playerAnswers = answersData.filter(
+        (a: any) =>
+          String(a?.playerName || "").trim().toLowerCase() ===
+          String(playerName).trim().toLowerCase()
+      );
+      
+      // Construir mapa de respuestas indexadas por pregunta
+      const answerMap = new Map<number, any>();
+      playerAnswers.forEach((a: any) => {
+        const srcIdx = Number(a?.sourceQuestionIndex ?? a?.questionIndex);
+        if (!answerMap.has(srcIdx)) {
+          answerMap.set(srcIdx, a);
+        }
+      });
+      
+      // Determinar función para resolver respuesta correcta
+      function resolveCorrectIndex(question: any): number {
+        if (question?.correctAnswerIndex !== undefined) return Number(question.correctAnswerIndex);
+        if (question?.correct !== undefined) return Number(question.correct);
+        if (question?.correctAnswer !== undefined && !Array.isArray(question?.options)) {
+          const n = Number(question.correctAnswer);
+          if (!Number.isNaN(n)) return n;
+        }
+        if (question?.correctAnswer && Array.isArray(question?.options)) {
+          return question.options.findIndex(
+            (o: string) =>
+              String(o).trim().toLowerCase() ===
+              String(question.correctAnswer).trim().toLowerCase()
+          );
+        }
+        return -1;
+      }
+      
+      const selectedQuestionIndexes: number[] = Array.isArray(session?.selectedQuestionIndexes)
+        ? session.selectedQuestionIndexes
+        : [];
+      const configQ = Math.min(
+        Math.max(1, Number(session?.questionsPerGame || quiz?.settings?.questionsPerGame || quiz?.questions?.length || 1)),
+        Math.max(1, Number(quiz?.questions?.length || 1))
+      );
+      const fallbackOrder = quiz?.questions
+        ? Array.from({ length: quiz.questions.length }, (_, i) => i).slice(0, configQ)
+        : [];
+      const questionOrder = selectedQuestionIndexes.length
+        ? selectedQuestionIndexes.slice(0, configQ)
+        : fallbackOrder;
+      
+      // Construir filas de detalles
+      const rows = questionOrder.map((sourceIndex: number, idx: number) => {
+        const q = quiz?.questions?.[sourceIndex] || {};
+        const options: string[] = Array.isArray(q?.options) ? q.options : [];
+        const correctIndex = resolveCorrectIndex(q);
+        const answerDoc = answerMap.get(Number(sourceIndex));
+        const selectedIndex = Number(answerDoc?.answerIndex ?? -1);
+        
+        return {
+          questionNumber: idx + 1,
+          questionText: q?.text || q?.question || "(sin texto)",
+          selectedOption: selectedIndex >= 0 && selectedIndex < options.length
+            ? options[selectedIndex]
+            : "(no respondida)",
+          correctOption: correctIndex >= 0 && correctIndex < options.length
+            ? options[correctIndex]
+            : "(desconocida)",
+          isCorrect: answerDoc ? Boolean(answerDoc.correct) : false,
+          wasAnswered: Boolean(answerDoc)
+        };
+      });
+      
+      setDetailsTitle(`${quiz?.title} - ${playerName}`);
+      setDetailsRows(rows);
+      setShowDetailsModal(true);
+    } catch (e) {
+      console.error("Error loading details:", e);
+    } finally {
+      setLoadingDetails(false);
+    }
+  }
 
+  useEffect(() => {
     if (!sessionId) return;
 
     setLoading(true);
@@ -258,7 +362,7 @@ export default function PlaySessionPage() {
           <p className="mb-4">Tu puntaje: {currentPlayer?.score ?? 0}</p>
           <p className="mb-8">Respuestas correctas: {currentPlayer?.correctAnswers ?? 0}</p>
 
-          <div className="bg-white rounded-lg shadow p-4">
+          <div className="bg-white rounded-lg shadow p-4 mb-6">
             <h2 className="text-2xl font-semibold mb-4">Tabla de jugadores</h2>
             {sortedPlayers.map((p, i) => (
               <div key={p.id} className="flex justify-between border-b py-2">
@@ -267,7 +371,68 @@ export default function PlaySessionPage() {
               </div>
             ))}
           </div>
+
+          <div className="flex gap-3">
+            <button
+              onClick={loadPlayerDetails}
+              disabled={loadingDetails}
+              className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+            >
+              {loadingDetails ? "Cargando..." : "📊 Resultados"}
+            </button>
+          </div>
         </main>
+
+        {showDetailsModal && (
+          <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[80vh] overflow-hidden">
+              <div className="px-4 py-3 border-b flex items-center justify-between">
+                <h3 className="font-semibold text-lg">{detailsTitle}</h3>
+                <button
+                  onClick={() => setShowDetailsModal(false)}
+                  className="px-3 py-1 rounded border border-gray-300 hover:bg-gray-100"
+                >
+                  Cerrar
+                </button>
+              </div>
+
+              <div className="p-4 overflow-auto max-h-[65vh]">
+                {detailsRows.length === 0 ? (
+                  <p className="text-gray-600">No hay respuestas para mostrar.</p>
+                ) : (
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr>
+                        <th className="border px-3 py-2">#</th>
+                        <th className="border px-3 py-2">Pregunta</th>
+                        <th className="border px-3 py-2">Respondió</th>
+                        <th className="border px-3 py-2">Correcta</th>
+                        <th className="border px-3 py-2">Estado</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {detailsRows.map((d, i) => (
+                        <tr key={`detail-${i}`} className="hover:bg-purple-50">
+                          <td className="border px-3 py-2">{d.questionNumber}</td>
+                          <td className="border px-3 py-2">{d.questionText}</td>
+                          <td className="border px-3 py-2">{d.selectedOption}</td>
+                          <td className="border px-3 py-2">{d.correctOption}</td>
+                          <td className="border px-3 py-2">
+                            {d.wasAnswered
+                              ? d.isCorrect
+                                ? "✅ Correcta"
+                                : "❌ Incorrecta"
+                              : "⭕ Sin responder"}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
       </>
     );
   }
