@@ -21,6 +21,30 @@ type JoinBody = {
 
 let preferAdminForJoin = Boolean(adminDbInstance)
 
+// Función para crear mapeos aleatorios de opciones por pregunta
+function generateOptionMappings(quiz: any): Record<string, number[]> {
+  const mappings: Record<string, number[]> = {};
+  
+  if (!Array.isArray(quiz?.questions)) return mappings;
+  
+  quiz.questions.forEach((question: any, qIdx: number) => {
+    const options = Array.isArray(question?.options) ? question.options : [];
+    const numOptions = options.length;
+    
+    if (numOptions > 0) {
+      // Crear array [0, 1, 2, ...] y randomizarlo
+      const indices = Array.from({ length: numOptions }, (_, i) => i);
+      for (let i = indices.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [indices[i], indices[j]] = [indices[j], indices[i]];
+      }
+      mappings[String(qIdx)] = indices;
+    }
+  });
+  
+  return mappings;
+}
+
 export async function POST(req: Request) {
   let body: JoinBody
   try {
@@ -96,10 +120,24 @@ async function handleWithAdmin(body: JoinBody): Promise<NextResponse> {
     return NextResponse.json({ success: true, playerId: existing.docs[0].id, sessionId })
   }
 
+  // Obtener quiz para crear mappings aleatorios de opciones
+  let quiz: any = null;
+  if (sessionData.quizId) {
+    const quizSnap = await adminDbInstance.collection("quizzes").doc(sessionData.quizId).get();
+    if (quizSnap.exists) {
+      quiz = quizSnap.data();
+    }
+  }
+
+  const optionMappings = generateOptionMappings(quiz);
+
   const newPlayer = await playersRef.add({
     name: playerName,
     score: 0,
     answers: [],
+    correctAnswers: 0,
+    lastAnsweredQuestion: -1,
+    optionMappings,
     joinedAt: new Date()
   })
 
@@ -186,6 +224,18 @@ async function handleWithClientSDK(body: JoinBody): Promise<NextResponse> {
       })
     }
 
+    // Obtener quiz para crear mappings aleatorios de opciones
+    let quiz: any = null;
+    if (sessionData.quizId) {
+      const quizRef = doc(db, "quizzes", sessionData.quizId);
+      const quizSnap = await getDoc(quizRef);
+      if (quizSnap.exists()) {
+        quiz = quizSnap.data();
+      }
+    }
+
+    const optionMappings = generateOptionMappings(quiz);
+
     // 👤 crear jugador dentro de la sesión
     const playerRef = await addDoc(
       playersRef,
@@ -193,6 +243,9 @@ async function handleWithClientSDK(body: JoinBody): Promise<NextResponse> {
         name: playerName,
         score: 0,
         answers: [],
+        correctAnswers: 0,
+        lastAnsweredQuestion: -1,
+        optionMappings,
         joinedAt: serverTimestamp()
       }
     )

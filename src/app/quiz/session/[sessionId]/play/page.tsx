@@ -42,6 +42,7 @@ export default function PlaySessionPage() {
     wasAnswered: boolean;
   }>>([]);
   const [loadingDetails, setLoadingDetails] = useState(false);
+  const [optionMappings, setOptionMappings] = useState<Record<string, number[]>>({});
 
   const selectedQuestionIndexes: number[] = Array.isArray(session?.selectedQuestionIndexes)
     ? session.selectedQuestionIndexes
@@ -61,9 +62,28 @@ export default function PlaySessionPage() {
   const question = quiz?.questions?.[currentQuestionIndexInQuiz] || null;
   const questionTimeLimit = Math.max(1, Number(question?.timeLimit || 20));
 
+  // Aplicar mapping para mostrar opciones randomizadas
+  function getRandomizedOptions(questionIndex: number, originalOptions: string[]): string[] {
+    const mapping = optionMappings?.[String(questionIndex)];
+    if (!mapping || !Array.isArray(originalOptions)) return originalOptions;
+    
+    return originalOptions.map((_, i) => originalOptions[mapping[i] ?? i]);
+  }
+
+  // Revertir mapping para obtener índice original
+  function convertRandomizedIndexToOriginal(questionIndex: number, randomizedIndex: number): number {
+    const mapping = optionMappings?.[String(questionIndex)];
+    if (!mapping || !Array.isArray(mapping)) return randomizedIndex;
+    
+    return mapping[randomizedIndex] ?? randomizedIndex;
+  }
+
   async function sendAnswer(index: number) {
 
     if (answered) return;
+
+    // Convertir índice randomizado al original antes de enviar
+    const originalIndex = convertRandomizedIndexToOriginal(currentQuestionIndexInQuiz, index);
 
     setSelected(index);
     setAnswered(true);
@@ -77,7 +97,7 @@ export default function PlaySessionPage() {
         playerName,
         playerId,
         questionIndex: session.currentQuestion,
-        answerIndex: index
+        answerIndex: originalIndex
       })
     });
 
@@ -315,6 +335,16 @@ export default function PlaySessionPage() {
     return () => unsubscribe();
   }, [sessionId]);
 
+  // Cargar option mappings del jugador actual
+  useEffect(() => {
+    if (!sessionId || !playerName || players.length === 0) return;
+
+    const currentPlayer = players.find((p) => p.name === playerName);
+    if (currentPlayer?.optionMappings) {
+      setOptionMappings(currentPlayer.optionMappings);
+    }
+  }, [sessionId, playerName, players]);
+
   useEffect(() => {
     if (time <= 0 || session?.status !== "playing") return;
 
@@ -474,7 +504,7 @@ export default function PlaySessionPage() {
 
         <div className="grid grid-cols-2 gap-4">
 
-          {options.map((opt: string, i: number) => (
+          {getRandomizedOptions(currentQuestionIndexInQuiz, options).map((opt: string, i: number) => (
 
             <button
               key={i}
