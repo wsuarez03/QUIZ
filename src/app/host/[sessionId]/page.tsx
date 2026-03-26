@@ -323,17 +323,25 @@ export default function HostPage() {
             <Leaderboard
               entries={players
                 .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
-                .map((p, idx) => ({
-                  rank: idx + 1,
-                  playerId: p.id,
-                  playerName: p.name,
-                  score: p.score ?? 0,
-                  correctAnswers: p.correctAnswers ?? 0,
-                  accuracy:
-                    quiz?.questions?.length > 0
-                      ? Math.round(((p.correctAnswers ?? 0) / quiz.questions.length) * 100)
-                      : 0
-                }))}
+                .map((p, idx) => {
+                  const selectedQuestionIndexes: number[] = Array.isArray(session?.selectedQuestionIndexes)
+                    ? session.selectedQuestionIndexes
+                    : [];
+                  const totalQuestionsAsked = Math.max(1, 
+                    selectedQuestionIndexes.length || 
+                    Number(session?.questionsPerGame) || 
+                    quiz?.questions?.length || 
+                    0
+                  );
+                  return {
+                    rank: idx + 1,
+                    playerId: p.id,
+                    playerName: p.name,
+                    score: p.score ?? 0,
+                    correctAnswers: p.correctAnswers ?? 0,
+                    accuracy: Math.round(((p.correctAnswers ?? 0) / totalQuestionsAsked) * 100)
+                  };
+                })}
               title="Tabla de posiciones final"
             />
 

@@ -125,6 +125,9 @@ export async function POST(req: NextRequest) {
       ? sessionData.selectedQuestionIndexes
       : Array.from({ length: totalQuestions }, (_, i) => i);
 
+    // Calculate accuracy based on questions actually asked, not total in quiz
+    const totalQuestionsAsked = Math.min(selectedQuestionIndexes.length, totalQuestions);
+
     const results = sortedPlayers.map((playerDoc, index) => {
       const p = playerDoc.data || {};
       const correctAnswers = Number(p.correctAnswers || 0);
@@ -174,8 +177,8 @@ export async function POST(req: NextRequest) {
         playerName: p.name || "Jugador",
         score: Number(p.score || 0),
         correctAnswers,
-        accuracy: totalQuestions > 0
-          ? Math.round((correctAnswers / totalQuestions) * 100)
+        accuracy: totalQuestionsAsked > 0
+          ? Math.round((correctAnswers / totalQuestionsAsked) * 100)
           : 0,
         answers,
       };
@@ -192,7 +195,7 @@ export async function POST(req: NextRequest) {
       sessionStatus: sessionData?.status || "finished",
       quizId: sessionData?.quizId || "",
       quizTitle: quizData?.title || "Quiz",
-      totalQuestions,
+      totalQuestions: totalQuestionsAsked,
       results,
       savedAt: Date.now()
     };
