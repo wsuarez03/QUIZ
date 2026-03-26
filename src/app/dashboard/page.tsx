@@ -142,6 +142,10 @@ export default function Dashboard() {
     }
   };
 
+  const handleEdit = (quizId: string) => {
+    router.push(`/quiz/${quizId}/edit`);
+  };
+
   if (status === 'loading' || isLoading) {
     return (
       <>
@@ -235,11 +239,7 @@ export default function Dashboard() {
                   key={quiz.id}
                   quiz={quiz}
                   onDelete={activeTab === 'my' ? handleDelete : undefined}
-                  onEdit={
-                    activeTab === 'my'
-                      ? () => router.push(`/quiz/${quiz.id}/edit`)
-                      : undefined
-                  }
+                  onEdit={activeTab === 'my' ? handleEdit : undefined}
                 />
               ))}
             </div>
