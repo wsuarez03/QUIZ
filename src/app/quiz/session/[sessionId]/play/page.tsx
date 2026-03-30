@@ -8,6 +8,12 @@ import { Navbar } from "@/components/Navbar";
 
 export default function PlaySessionPage() {
 
+  function toSafeTimeLimit(rawValue: unknown, fallback = 20) {
+    const parsed = Number(rawValue);
+    if (!Number.isFinite(parsed)) return fallback;
+    return Math.min(300, Math.max(1, Math.floor(parsed)));
+  }
+
   const params = useParams();
   const search = useSearchParams();
   const router = useRouter();
@@ -60,7 +66,7 @@ export default function PlaySessionPage() {
   const totalQuestions = questionOrder.length;
   const currentQuestionIndexInQuiz = questionOrder[session?.currentQuestion ?? 0] ?? session?.currentQuestion ?? 0;
   const question = quiz?.questions?.[currentQuestionIndexInQuiz] || null;
-  const questionTimeLimit = Math.max(1, Number(question?.timeLimit || 20));
+  const questionTimeLimit = toSafeTimeLimit(question?.timeLimit, 20);
 
   // Aplicar mapping para mostrar opciones randomizadas
   function getRandomizedOptions(questionIndex: number, originalOptions: string[]): string[] {

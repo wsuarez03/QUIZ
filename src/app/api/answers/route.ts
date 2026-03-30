@@ -106,6 +106,18 @@ async function handleWithAdmin(body: AnswerBody): Promise<NextResponse> {
       return NextResponse.json({ error: "session not found" }, { status: 404 });
     }
     const session = sessionSnap.data() as any;
+    const currentQuestion = Number(session?.currentQuestion ?? 0);
+
+    if (session?.status !== "playing") {
+      return NextResponse.json({ error: "session is not in playing state" }, { status: 409 });
+    }
+
+    if (Number(questionIndex) !== currentQuestion) {
+      return NextResponse.json(
+        { error: "question already closed", currentQuestion },
+        { status: 409 }
+      );
+    }
 
     const quizSnap = await adminDbInstance.collection("quizzes").doc(session.quizId).get();
     if (!quizSnap.exists) {
@@ -195,6 +207,21 @@ async function handleWithClientSDK(body: AnswerBody): Promise<NextResponse> {
     }
 
     const session = sessionSnap.data();
+    const currentQuestion = Number((session as any)?.currentQuestion ?? 0);
+
+    if ((session as any)?.status !== "playing") {
+      return NextResponse.json(
+        { error: "session is not in playing state" },
+        { status: 409 }
+      );
+    }
+
+    if (Number(questionIndex) !== currentQuestion) {
+      return NextResponse.json(
+        { error: "question already closed", currentQuestion },
+        { status: 409 }
+      );
+    }
 
     const quizSnap = await getDoc(
       doc(db, "quizzes", session.quizId)

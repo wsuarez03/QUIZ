@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useParams } from "next/navigation"
 import { useRouter } from "next/navigation"
 
@@ -29,6 +29,13 @@ export default function HostPage() {
   const [players, setPlayers] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [savingResults, setSavingResults] = useState(false)
+  const advancingRef = useRef(false)
+
+  function toSafeTimeLimit(rawValue: unknown, fallback = 20) {
+    const parsed = Number(rawValue)
+    if (!Number.isFinite(parsed)) return fallback
+    return Math.min(300, Math.max(1, Math.floor(parsed)))
+  }
 
   const selectedQuestionIndexes: number[] = Array.isArray(session?.selectedQuestionIndexes)
     ? session.selectedQuestionIndexes
@@ -163,29 +170,37 @@ export default function HostPage() {
   // 🔹 Siguiente pregunta manual
   const nextQuestion = async (force = false) => {
 
-    if (!quiz) return
+    if (!quiz || advancingRef.current) return
     if (!force && !canAdvanceManually) return
 
-    const isLast =
-      session.currentQuestion >= totalQuestions - 1
+    advancingRef.current = true
 
-    if (isLast) {
-
+    try {
       const ref = doc(db, "game_sessions", sessionId)
+      const latestSnap = await getDoc(ref)
+      if (!latestSnap.exists()) return
+
+      const latestSession = latestSnap.data() as any
+      const latestCurrentQuestion = Number(latestSession?.currentQuestion ?? 0)
+
+      const isLast = latestCurrentQuestion >= totalQuestions - 1
+
+      if (isLast) {
+
+        await updateDoc(ref, {
+          status: "finished"
+        })
+
+        return
+      }
 
       await updateDoc(ref, {
-        status: "finished"
+        currentQuestion: latestCurrentQuestion + 1,
+        questionStartTime: Date.now()
       })
-
-      return
+    } finally {
+      advancingRef.current = false
     }
-
-    const ref = doc(db, "game_sessions", sessionId)
-
-    await updateDoc(ref, {
-      currentQuestion: session.currentQuestion + 1,
-      questionStartTime: Date.now()
-    })
 
   }
 
@@ -224,7 +239,7 @@ export default function HostPage() {
     if (!session || !quiz) return
     if (session.status !== "playing") return
 
-    const questionTimeLimit = Math.max(1, Number(question?.timeLimit || 20))
+    const questionTimeLimit = toSafeTimeLimit(question?.timeLimit, 20)
     const timer = setTimeout(() => {
 
       nextQuestion(true)
