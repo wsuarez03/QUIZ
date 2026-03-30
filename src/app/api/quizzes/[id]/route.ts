@@ -42,7 +42,15 @@ export async function GET(
       const snap = await getDoc(doc(db, 'quizzes', quizId));
       if (snap.exists()) {
         const data = snap.data() as any;
-        const questions: any[] = Array.isArray(data.questions) ? data.questions : [];
+        let questions: any[] = Array.isArray(data.questions) ? data.questions : [];
+        if (!questions.length) {
+          try {
+            const sub = await getDocs(collection(db, 'quizzes', quizId, 'questions'));
+            questions = sub.docs.map((d) => ({ id: d.id, ...d.data() }));
+          } catch {
+            // keep empty questions and let UI handle gracefully
+          }
+        }
         return NextResponse.json(
           { id: quizId, ...data, questions, createdAt: data.createdAt?.toDate?.() || new Date() },
           { status: 200 }

@@ -9,6 +9,7 @@ import { db } from "@/lib/firebase"
 import {
   doc,
   getDoc,
+  getDocs,
   updateDoc,
   onSnapshot,
   collection
@@ -106,7 +107,16 @@ export default function HostPage() {
         const snap = await getDoc(doc(db, 'quizzes', session.quizId))
         if (snap.exists()) {
           const data: any = snap.data()
-          setQuiz({ id: snap.id, ...data, questions: data.questions ?? [] })
+          let questions = Array.isArray(data.questions) ? data.questions : []
+
+          if (!questions.length) {
+            try {
+              const questionsSnap = await getDocs(collection(db, 'quizzes', session.quizId, 'questions'))
+              questions = questionsSnap.docs.map((d) => ({ id: d.id, ...d.data() }))
+            } catch { /* no-op */ }
+          }
+
+          setQuiz({ id: snap.id, ...data, questions })
         }
       } catch (err) {
         console.error('Failed to load quiz from Firestore:', err)
