@@ -26,29 +26,30 @@ export default function LoginPage() {
       });
 
       if (result?.error) {
-        console.error('Login error code:', result.error);
-        if (result.error === 'CredentialsSignin') {
+        const errorCode = String(result.error);
+        console.error('Login error code:', errorCode);
+        if (errorCode === 'CredentialsSignin') {
           setError('Email o contrasena incorrectos.');
-        } else if (result.error.includes('FIREBASE_AUTH_ERROR:OPERATION_NOT_ALLOWED')) {
+        } else if (errorCode.includes('FIREBASE_AUTH_ERROR:OPERATION_NOT_ALLOWED')) {
           setError('En Firebase no esta habilitado Email/Password en Authentication > Sign-in method.');
-        } else if (result.error.includes('FIREBASE_AUTH_ERROR:INVALID_LOGIN_CREDENTIALS')) {
+        } else if (errorCode.includes('FIREBASE_AUTH_ERROR:INVALID_LOGIN_CREDENTIALS')) {
           setError('Email o contrasena incorrectos.');
-        } else if (result.error.includes('FIREBASE_AUTH_ERROR:TOO_MANY_ATTEMPTS_TRY_LATER')) {
+        } else if (errorCode.includes('FIREBASE_AUTH_ERROR:TOO_MANY_ATTEMPTS_TRY_LATER')) {
           setError('Demasiados intentos. Espera unos minutos y vuelve a intentar.');
-        } else if (result.error.includes('FIREBASE_AUTH_ERROR:USER_DISABLED')) {
+        } else if (errorCode.includes('FIREBASE_AUTH_ERROR:USER_DISABLED')) {
           setError('Este usuario fue deshabilitado en Firebase Authentication.');
-        } else if (result.error.includes('FIREBASE_AUTH_ERROR:NETWORK_ERROR')) {
+        } else if (errorCode.includes('FIREBASE_AUTH_ERROR:NETWORK_ERROR')) {
           setError('No se pudo conectar con Firebase Auth desde el servidor. Revisa red/restricciones de API key.');
-        } else if (result.error.includes('FIREBASE_AUTH_ERROR:API_KEY_INVALID')) {
+        } else if (errorCode.includes('FIREBASE_AUTH_ERROR:API_KEY_INVALID')) {
           setError('La API key de Firebase en Vercel es invalida.');
-        } else if (result.error.includes('FIREBASE_AUTH_ERROR:HTTP_403')) {
+        } else if (errorCode.includes('FIREBASE_AUTH_ERROR:HTTP_403')) {
           setError('Firebase rechazo la solicitud (HTTP 403). Revisa restricciones de la API key.');
-        } else if (result.error.includes('FIREBASE_AUTH_ERROR:INVALID_RESPONSE_')) {
+        } else if (errorCode.includes('FIREBASE_AUTH_ERROR:INVALID_RESPONSE_')) {
           setError('Firebase devolvio una respuesta no valida. Revisa configuracion de proyecto/API key.');
-        } else if (result.error.includes('FIREBASE_AUTH_ERROR:UNEXPECTED')) {
+        } else if (errorCode.includes('FIREBASE_AUTH_ERROR:UNEXPECTED')) {
           setError('Error inesperado de autenticacion en servidor. Revisa logs de Vercel Functions.');
         } else {
-          setError(`No fue posible iniciar sesion (${result.error}).`);
+          setError(`No fue posible iniciar sesion (${errorCode}).`);
         }
       } else {
         router.push('/dashboard');

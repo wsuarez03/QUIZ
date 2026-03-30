@@ -28,6 +28,51 @@ function normalizeName(value?: string) {
   return String(value || "").trim().toLowerCase();
 }
 
+function resolveCorrectIndex(question: any): number {
+  const options: string[] = Array.isArray(question?.options) ? question.options : [];
+
+  if (question?.correctAnswerIndex !== undefined) {
+    const idx = Number(question.correctAnswerIndex);
+    return Number.isInteger(idx) ? idx : -1;
+  }
+
+  if (question?.correct !== undefined) {
+    const idx = Number(question.correct);
+    return Number.isInteger(idx) ? idx : -1;
+  }
+
+  if (question?.correctAnswer !== undefined) {
+    if (typeof question.correctAnswer === "number") {
+      const value = Number(question.correctAnswer);
+
+      if (Number.isInteger(value) && value >= 0 && value < options.length) {
+        return value;
+      }
+
+      if (Number.isInteger(value) && value >= 1 && value <= options.length) {
+        return value - 1;
+      }
+
+      return -1;
+    }
+
+    const asNumber = Number(question.correctAnswer);
+    if (Number.isInteger(asNumber)) {
+      if (asNumber >= 0 && asNumber < options.length) {
+        return asNumber;
+      }
+      if (asNumber >= 1 && asNumber <= options.length) {
+        return asNumber - 1;
+      }
+    }
+
+    const expected = String(question.correctAnswer).trim().toLowerCase();
+    return options.findIndex((o: string) => String(o).trim().toLowerCase() === expected);
+  }
+
+  return -1;
+}
+
 async function resolveAdminPlayerRef(sessionId: string, playerId?: string, playerName?: string) {
   const playersRef = adminDbInstance.collection("game_sessions").doc(sessionId).collection("players");
 
@@ -119,6 +164,10 @@ async function handleWithAdmin(body: AnswerBody): Promise<NextResponse> {
       );
     }
 
+    if (!session?.quizId) {
+      return NextResponse.json({ error: "session has no quizId" }, { status: 400 });
+    }
+
     const quizSnap = await adminDbInstance.collection("quizzes").doc(session.quizId).get();
     if (!quizSnap.exists) {
       return NextResponse.json({ error: "quiz not found" }, { status: 404 });
@@ -143,14 +192,7 @@ async function handleWithAdmin(body: AnswerBody): Promise<NextResponse> {
       return NextResponse.json({ error: "question not found" }, { status: 400 });
     }
 
-    let correctIndex = -1;
-    if (question.correctAnswerIndex !== undefined) correctIndex = Number(question.correctAnswerIndex);
-    else if (question.correct !== undefined) correctIndex = Number(question.correct);
-    else if (question.correctAnswer) {
-      correctIndex = question.options?.findIndex(
-        (o: string) => o.trim().toLowerCase() === question.correctAnswer.trim().toLowerCase()
-      );
-    }
+    const correctIndex = resolveCorrectIndex(question);
 
     const selectedIndex = Number(answerIndex);
     const correct = correctIndex >= 0 && selectedIndex === Number(correctIndex);
@@ -223,6 +265,13 @@ async function handleWithClientSDK(body: AnswerBody): Promise<NextResponse> {
       );
     }
 
+    if (!(session as any)?.quizId) {
+      return NextResponse.json(
+        { error: "session has no quizId" },
+        { status: 400 }
+      );
+    }
+
     const quizSnap = await getDoc(
       doc(db, "quizzes", session.quizId)
     );
@@ -256,19 +305,7 @@ async function handleWithClientSDK(body: AnswerBody): Promise<NextResponse> {
     }
 
     // 🔧 detectar respuesta correcta
-    let correctIndex = -1;
-
-    if (question.correctAnswerIndex !== undefined) {
-      correctIndex = Number(question.correctAnswerIndex);
-    } else if (question.correct !== undefined) {
-      correctIndex = Number(question.correct);
-    } else if (question.correctAnswer) {
-      correctIndex = question.options?.findIndex(
-        (o: string) =>
-          o.trim().toLowerCase() ===
-          question.correctAnswer.trim().toLowerCase()
-      );
-    }
+    const correctIndex = resolveCorrectIndex(question);
 
     const selectedIndex = Number(answerIndex);
     const correct = correctIndex >= 0 && selectedIndex === Number(correctIndex);
