@@ -65,9 +65,44 @@ export async function POST(req: Request) {
 
     if (!quizData) quizData = mockQuiz
     const mockQuestionList = Array.isArray(mockQuiz?.questions) ? mockQuiz.questions : []
-    const quizQuestions = Array.isArray(quizData?.questions) && quizData?.questions?.length
+    let quizQuestions = Array.isArray(quizData?.questions) && quizData?.questions?.length
       ? quizData.questions
       : mockQuestionList
+
+    if (!quizQuestions.length && preferAdminForSessions && adminDbInstance) {
+      try {
+        const sub = await adminDbInstance
+          .collection("quizzes")
+          .doc(quizId)
+          .collection("questions")
+          .get()
+
+        if (!sub.empty) {
+          quizQuestions = sub.docs.map((d: any) => ({ id: d.id, ...d.data() }))
+        }
+      } catch (adminSubErr) {
+        console.warn("Admin questions read failed, trying client fallback:", adminSubErr)
+      }
+    }
+
+    if (!quizQuestions.length) {
+      try {
+        const sub = await getDocs(collection(db, "quizzes", quizId, "questions"))
+        if (!sub.empty) {
+          quizQuestions = sub.docs.map((d) => ({ id: d.id, ...d.data() }))
+        }
+      } catch (clientSubErr) {
+        console.warn("Client questions read failed:", clientSubErr)
+      }
+    }
+
+    if (!quizQuestions.length) {
+      return NextResponse.json(
+        { error: "El quiz no tiene preguntas disponibles" },
+        { status: 400 }
+      )
+    }
+
     const totalAvailableQuestions = quizQuestions.length
     const configuredQuestionsPerGame = Number(
       quizData?.settings?.questionsPerGame || totalAvailableQuestions || 1
