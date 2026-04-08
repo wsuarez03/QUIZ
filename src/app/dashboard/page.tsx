@@ -8,8 +8,6 @@ import Link from 'next/link';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import type { Quiz } from '@/types';
-import { db } from '@/lib/firebase';
-import { collection, getDocs } from 'firebase/firestore';
 
 export default function Dashboard() {
   const { data: session, status } = useSession();
@@ -19,45 +17,6 @@ export default function Dashboard() {
   const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'my' | 'public'>('public');
   const [error, setError] = useState<string | null>(null);
-
-  const fetchQuizzesFromClient = useCallback(async () => {
-    const snap = await getDocs(collection(db, 'quizzes'));
-
-    const all = snap.docs.map((d) => {
-      const data: any = d.data();
-      const totalQuestions = Array.isArray(data.questions)
-        ? data.questions.length
-        : Number(data.totalQuestions || data.settings?.questionsPerGame || 0);
-
-      return {
-        id: d.id,
-        ...data,
-        questions: data.questions ?? [],
-        totalQuestions,
-      } as Quiz;
-    });
-
-    if (activeTab === 'public') {
-      return all.filter((q: any) => {
-        if (q.isPublic === true || q.isPublic === 'true') return true;
-        return String((q as any).visibility || '').toLowerCase() === 'public';
-      });
-    }
-
-    const ownerId = String(session?.user?.id || '').toLowerCase();
-    const ownerEmail = String(session?.user?.email || '').toLowerCase();
-
-    return all.filter((q: any) => {
-      const candidates = [
-        (q as any).createdBy,
-        (q as any).createdByEmail,
-        (q as any).ownerId,
-        (q as any).ownerEmail,
-      ].map((v: any) => String(v || '').toLowerCase()).filter(Boolean);
-
-      return candidates.includes(ownerId) || candidates.includes(ownerEmail);
-    });
-  }, [activeTab, session?.user?.email, session?.user?.id]);
 
   // Redirect if not authenticated
   useEffect(() => {
@@ -99,35 +58,22 @@ export default function Dashboard() {
       const data = await res.json();
 
       if (Array.isArray(data)) {
-        if (data.length > 0) {
-          setQuizzes(data);
-        } else {
-          const clientData = await fetchQuizzesFromClient();
-          setQuizzes(clientData);
-        }
+        setQuizzes(data);
       } else {
         console.error('Invalid response:', data);
-        const clientData = await fetchQuizzesFromClient();
-        setQuizzes(clientData);
+        setQuizzes([]);
+        setError('Respuesta invalida del servidor al cargar quizzes.');
       }
 
     } catch (error) {
       console.error('Error fetching quizzes:', error);
-      try {
-        const clientData = await fetchQuizzesFromClient();
-        setQuizzes(clientData);
-        if (clientData.length === 0) {
-          setError('No se encontraron quizzes para este usuario.');
-        }
-      } catch {
-        setError('Failed to load quizzes');
-        setQuizzes([]);
-      }
+      setError('Failed to load quizzes');
+      setQuizzes([]);
     } finally {
       setIsLoading(false);
     }
 
-  }, [activeTab, fetchQuizzesFromClient, session?.user, router]);
+  }, [activeTab, session?.user, router]);
 
   useEffect(() => {
     if (status === 'authenticated') {

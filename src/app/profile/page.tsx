@@ -3,8 +3,6 @@
 import { useEffect, useState } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
-import { db } from '@/lib/firebase';
-import { collection, onSnapshot } from 'firebase/firestore';
 import { Navbar } from '@/components/Navbar';
 import { AchievementBadges } from '@/components/AchievementBadges';
 import type { UserAchievement } from '@/lib/achievements';
@@ -38,47 +36,43 @@ export default function ProfilePage() {
   }, [session]);
 
   useEffect(() => {
-    const userName = session?.user?.name;
-    if (!userName || !session?.user?.email) return;
+    if (!session?.user) return;
 
-    // Cargar saved_results directamente
-    const unsubscribe = onSnapshot(
-      collection(db, 'saved_results'),
-      async (snapshot) => {
-        const entries = snapshot.docs
-          .map((doc) => {
-            const data = doc.data();
-            // Filtrar solo los resultados del usuario actual
-            const userId = String(session.user?.id || '');
-            const userEmail = String(session.user?.email || '');
-            const ownerId = String(data.ownerId || '');
-            const ownerEmail = String(data.ownerEmail || '');
+    const loadSavedResults = async () => {
+      try {
+        const res = await fetch('/api/results/saved', { credentials: 'include' });
 
-            if (ownerId !== userId && ownerEmail !== userEmail) {
-              return null;
-            }
-            return {
-              id: doc.id,
-              quizTitle: data.quizTitle || 'Quiz Sin Título',
-              savedAt: data.savedAt || 0,
-              participantCount: (data.results || []).length,
-            };
-          })
-          .filter((entry): entry is SavedGameSession => entry !== null)
-          .sort((a, b) => b.savedAt - a.savedAt); // Más recientes primero
+        if (!res.ok) {
+          console.error('Error loading saved results from API:', res.status);
+          setResults([]);
+          setStats((prev) => ({
+            ...prev,
+            gamesPlayed: 0,
+          }));
+          return;
+        }
+
+        const data = await res.json();
+        const entries = (Array.isArray(data) ? data : [])
+          .map((item: any) => ({
+            id: String(item.id || ''),
+            quizTitle: item.quizTitle || 'Quiz Sin Titulo',
+            savedAt: Number(item.savedAt || 0),
+            participantCount: Array.isArray(item.results) ? item.results.length : 0,
+          }))
+          .sort((a: SavedGameSession, b: SavedGameSession) => b.savedAt - a.savedAt);
 
         setResults(entries);
         setStats((prev) => ({
           ...prev,
           gamesPlayed: entries.length,
         }));
-      },
-      (error) => {
-        console.error('Error escuchando resultados guardados:', error);
+      } catch (error) {
+        console.error('Error loading saved results from API:', error);
       }
-    );
+    };
 
-    return () => unsubscribe();
+    loadSavedResults();
   }, [session]);
 
   const fetchAchievements = async () => {
