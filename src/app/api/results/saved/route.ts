@@ -16,20 +16,37 @@ export async function GET() {
     }
 
     let data: any[] = [];
+    const ownerId = String(session.user.id || '');
+    const ownerEmail = String(session.user.email || '');
 
     let canUseAdmin = Boolean(preferAdminForSavedResults && adminDbInstance);
 
     if (canUseAdmin && adminDbInstance) {
       try {
-        const snap = await adminDbInstance
+        const byOwnerId = await adminDbInstance
           .collection("saved_results")
-          .where("ownerId", "==", session.user.id)
+          .where("ownerId", "==", ownerId)
           .get();
 
-        data = snap.docs.map((d: any) => ({
-          id: d.id,
-          ...d.data()
-        }));
+        let byOwnerEmail = { docs: [] as any[] };
+        if (ownerEmail) {
+          byOwnerEmail = await adminDbInstance
+            .collection("saved_results")
+            .where("ownerEmail", "==", ownerEmail)
+            .get() as any;
+        }
+
+        const mergedDocs = [...byOwnerId.docs, ...byOwnerEmail.docs];
+        const dedup = new Map<string, any>();
+
+        mergedDocs.forEach((d: any) => {
+          dedup.set(d.id, {
+            id: d.id,
+            ...d.data()
+          });
+        });
+
+        data = Array.from(dedup.values());
       } catch (adminErr) {
         canUseAdmin = false;
         preferAdminForSavedResults = false;
@@ -38,17 +55,33 @@ export async function GET() {
     }
 
     if (!canUseAdmin) {
-      const savedQ = query(
+      const byOwnerIdQ = query(
         collection(db, "saved_results"),
-        where("ownerId", "==", session.user.id)
+        where("ownerId", "==", ownerId)
       );
 
-      const snap = await getDocs(savedQ);
+      const snaps = [await getDocs(byOwnerIdQ)];
 
-      data = snap.docs.map((d) => ({
-        id: d.id,
-        ...d.data()
-      }));
+      if (ownerEmail) {
+        const byOwnerEmailQ = query(
+          collection(db, "saved_results"),
+          where("ownerEmail", "==", ownerEmail)
+        );
+        snaps.push(await getDocs(byOwnerEmailQ));
+      }
+
+      const dedup = new Map<string, any>();
+
+      snaps.forEach((snap) => {
+        snap.docs.forEach((d) => {
+          dedup.set(d.id, {
+            id: d.id,
+            ...d.data()
+          });
+        });
+      });
+
+      data = Array.from(dedup.values());
     }
 
     data.sort((a, b) => Number(b.savedAt || 0) - Number(a.savedAt || 0));

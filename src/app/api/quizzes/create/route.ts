@@ -56,7 +56,10 @@ export async function POST(request: NextRequest) {
     const quizData = {
       title,
       description: description || "",
-      createdBy: session.user.email,
+      createdBy: session.user.id || session.user.email,
+      createdByEmail: session.user.email,
+      ownerId: session.user.id || "",
+      ownerEmail: session.user.email,
       createdAt: firestore.FieldValue.serverTimestamp(),
       questions,
       isPublic: isPublic ?? false,

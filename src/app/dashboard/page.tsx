@@ -38,15 +38,24 @@ export default function Dashboard() {
     });
 
     if (activeTab === 'public') {
-      return all.filter((q: any) => q.isPublic === true || q.isPublic === 'true');
+      return all.filter((q: any) => {
+        if (q.isPublic === true || q.isPublic === 'true') return true;
+        return String((q as any).visibility || '').toLowerCase() === 'public';
+      });
     }
 
     const ownerId = String(session?.user?.id || '').toLowerCase();
     const ownerEmail = String(session?.user?.email || '').toLowerCase();
 
     return all.filter((q: any) => {
-      const createdBy = String((q as any).createdBy || '').toLowerCase();
-      return createdBy === ownerId || createdBy === ownerEmail;
+      const candidates = [
+        (q as any).createdBy,
+        (q as any).createdByEmail,
+        (q as any).ownerId,
+        (q as any).ownerEmail,
+      ].map((v: any) => String(v || '').toLowerCase()).filter(Boolean);
+
+      return candidates.includes(ownerId) || candidates.includes(ownerEmail);
     });
   }, [activeTab, session?.user?.email, session?.user?.id]);
 

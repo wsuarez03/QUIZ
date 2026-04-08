@@ -49,7 +49,12 @@ export default function ProfilePage() {
           .map((doc) => {
             const data = doc.data();
             // Filtrar solo los resultados del usuario actual
-            if (data.ownerId !== session.user?.email && data.ownerId !== session.user?.id) {
+            const userId = String(session.user?.id || '');
+            const userEmail = String(session.user?.email || '');
+            const ownerId = String(data.ownerId || '');
+            const ownerEmail = String(data.ownerEmail || '');
+
+            if (ownerId !== userId && ownerEmail !== userEmail) {
               return null;
             }
             return {

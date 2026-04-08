@@ -6,6 +6,11 @@ import { listMockQuizzes } from '@/lib/mockStore';
 // server-side read
 import { collection, query, where, getDocs } from 'firebase/firestore';
 
+function isQuizPublic(quiz: any): boolean {
+  if (quiz?.isPublic === true || quiz?.isPublic === 'true') return true;
+  return String(quiz?.visibility || '').toLowerCase() === 'public';
+}
+
 export async function GET(request: NextRequest) {
   try {
     // Use mock data only in local development.
@@ -32,7 +37,7 @@ export async function GET(request: NextRequest) {
             totalQuestions: questionCount,
             createdAt: data.createdAt?.toDate?.() || new Date(),
           };
-        }).filter((quiz: any) => quiz.isPublic === true || quiz.isPublic === 'true');
+        }).filter((quiz: any) => isQuizPublic(quiz));
 
         return NextResponse.json(clientQuizzes, { status: 200 });
       } catch (fallbackError) {
@@ -61,7 +66,7 @@ export async function GET(request: NextRequest) {
           totalQuestions: questionCount,
           createdAt: data.createdAt?.toDate?.() || new Date(),
         };
-      }).filter((quiz: any) => quiz.isPublic === true || quiz.isPublic === 'true');
+      }).filter((quiz: any) => isQuizPublic(quiz));
     } catch (err) {
       console.error('Firestore public query failed:', err);
       quizzes = [];

@@ -8,6 +8,19 @@ import { QueryDocumentSnapshot, DocumentData } from 'firebase-admin/firestore';
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 
+function belongsToUser(quiz: any, ownerId: string, ownerEmail: string): boolean {
+  const ownerIdLc = String(ownerId || '').toLowerCase();
+  const ownerEmailLc = String(ownerEmail || '').toLowerCase();
+  const candidates = [
+    quiz?.createdBy,
+    quiz?.createdByEmail,
+    quiz?.ownerId,
+    quiz?.ownerEmail,
+  ].map((v: any) => String(v || '').toLowerCase()).filter(Boolean);
+
+  return candidates.includes(ownerIdLc) || candidates.includes(ownerEmailLc);
+}
+
 export async function GET(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
@@ -37,8 +50,6 @@ export async function GET(request: NextRequest) {
 
       try {
         const snap = await getDocs(collection(db, 'quizzes'));
-        const ownerIdLc = String(ownerId || '').toLowerCase();
-        const ownerEmailLc = String(ownerEmail || '').toLowerCase();
 
         const quizzes = snap.docs.map((doc: any) => {
           const data = doc.data();
@@ -54,8 +65,7 @@ export async function GET(request: NextRequest) {
             createdAt: data.createdAt?.toDate?.() || new Date(),
           };
         }).filter((quiz: any) => {
-          const createdByLc = String(quiz.createdBy || '').toLowerCase();
-          return createdByLc === ownerIdLc || createdByLc === ownerEmailLc;
+          return belongsToUser(quiz, ownerId || '', ownerEmail || '');
         });
 
         return NextResponse.json(quizzes, { status: 200 });
@@ -70,8 +80,6 @@ export async function GET(request: NextRequest) {
 
     try {
       const allSnapshot = await adminDbInstance.collection('quizzes').get();
-      const ownerIdLc = String(ownerId || '').toLowerCase();
-      const ownerEmailLc = String(ownerEmail || '').toLowerCase();
 
       quizzes = allSnapshot.docs.map((doc: QueryDocumentSnapshot<DocumentData>) => {
         const data = doc.data();
@@ -87,8 +95,7 @@ export async function GET(request: NextRequest) {
           createdAt: data.createdAt?.toDate?.() || new Date(),
         };
       }).filter((quiz: any) => {
-        const createdByLc = String(quiz.createdBy || '').toLowerCase();
-        return createdByLc === ownerIdLc || createdByLc === ownerEmailLc;
+        return belongsToUser(quiz, ownerId || '', ownerEmail || '');
       });
 
     } catch (err) {
