@@ -70,6 +70,9 @@ export default function GameSession({ params }: { params: Promise<{ sessionId: s
         if (pid) qs.set("pid", pid);
         router.push(`/quiz/session/${sessionId}/play?${qs.toString()}`);
       }
+    }, (error) => {
+      console.error("Error listening game session:", error);
+      setError("No tienes permisos para leer esta sesion en tiempo real");
     });
     return () => unsub();
   }, [sessionId, router, name, playerId]);

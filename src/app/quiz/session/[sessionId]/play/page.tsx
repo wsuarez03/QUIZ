@@ -283,10 +283,25 @@ export default function PlaySessionPage() {
                 setQuiz((prev: any) => ({ ...prev, questions }));
 
                 setLoading(false);
+              },
+              (err) => {
+                console.error("Error listening questions:", err);
+                setError("No tienes permisos para leer preguntas en tiempo real");
+                setLoading(false);
               }
             );
+          },
+          (err) => {
+            console.error("Error listening quiz:", err);
+            setError("No tienes permisos para leer el quiz en tiempo real");
+            setLoading(false);
           }
         );
+      },
+      (err) => {
+        console.error("Error listening game session:", err);
+        setError("No tienes permisos para leer la sesión en tiempo real");
+        setLoading(false);
       }
     );
 
@@ -336,6 +351,8 @@ export default function PlaySessionPage() {
         list.push({ id: doc.id, ...doc.data() });
       });
       setPlayers(list);
+    }, (err) => {
+      console.error("Error listening players:", err);
     });
 
     return () => unsubscribe();

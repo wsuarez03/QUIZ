@@ -23,6 +23,7 @@ export default function HostPage() {
 
   const [players, setPlayers] = useState<Player[]>([])
   const [starting, setStarting] = useState(false)
+  const [realtimeError, setRealtimeError] = useState("")
 
   useEffect(() => {
 
@@ -44,6 +45,9 @@ export default function HostPage() {
 
       setPlayers(list)
 
+    }, (error) => {
+      console.error("Error listening players:", error)
+      setRealtimeError("Sin permisos para leer jugadores en tiempo real")
     })
 
     return () => unsubscribe()
@@ -103,6 +107,10 @@ export default function HostPage() {
       <h2 className="text-xl font-semibold mb-4">
         Jugadores conectados ({players.length})
       </h2>
+
+      {realtimeError && (
+        <p className="text-red-600 mb-4">{realtimeError}</p>
+      )}
 
       <div className="space-y-2">
 

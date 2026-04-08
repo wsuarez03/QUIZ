@@ -77,6 +77,9 @@ export default function HostPage() {
 
       setLoading(false)
 
+    }, (error) => {
+      console.error("Error listening session:", error)
+      setLoading(false)
     })
 
     return () => unsubscribe()
@@ -156,6 +159,8 @@ export default function HostPage() {
 
       setPlayers(list)
 
+    }, (error) => {
+      console.error("Error listening players:", error)
     })
 
     return () => unsubscribe()

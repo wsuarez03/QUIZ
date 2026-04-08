@@ -30,6 +30,7 @@ export default function LeaderboardPage(){
  const sessionId = params.sessionId as string;
 
  const [answers,setAnswers] = useState<any[]>([]);
+ const [error, setError] = useState("");
 
  useEffect(()=>{
 
@@ -42,8 +43,11 @@ export default function LeaderboardPage(){
 
    const data = snap.docs.map(d=>d.data());
 
-   setAnswers(data);
+  setAnswers(data);
 
+  }, (err) => {
+  console.error("Error listening answers:", err);
+  setError("Sin permisos para leer respuestas en tiempo real");
   });
 
   return ()=>unsub();
@@ -63,6 +67,10 @@ export default function LeaderboardPage(){
     </h1>
 
     <div className="max-w-xl">
+
+      {error && (
+       <p className="text-red-600 mb-4">{error}</p>
+      )}
 
      {ranking.map((r:any,i:number)=>(
       <div
