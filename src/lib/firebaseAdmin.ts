@@ -1,5 +1,6 @@
 import admin from 'firebase-admin';
 import { initializeFirestore } from 'firebase-admin/firestore';
+import { createPrivateKey } from 'crypto';
 
 // The service account credentials should be provided via environment variables
 // (e.g. in .env.local or your hosting platform). Example:
@@ -53,6 +54,15 @@ function buildPrivateKeyCandidates(rawKey?: string) {
     .filter((k) => k.includes('BEGIN PRIVATE KEY') && k.includes('END PRIVATE KEY'));
 }
 
+function isValidPrivateKey(key: string) {
+  try {
+    createPrivateKey({ key, format: 'pem' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // Allow explicit disable via env, but do not disable automatically on Vercel.
 const shouldUseAdminSDK = normalizeEnv(process.env.FIREBASE_ADMIN_DISABLED) !== 'true';
 
@@ -61,11 +71,17 @@ function parseServiceAccountFromJsonEnv() {
     normalizeEnv(process.env.FIREBASE_SERVICE_ACCOUNT_JSON) ||
     normalizeEnv(process.env.FIREBASE_SERVICE_ACCOUNT_KEY) ||
     normalizeEnv(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
+  const rawJsonB64 =
+    normalizeEnv(process.env.FIREBASE_SERVICE_ACCOUNT_JSON_BASE64) ||
+    normalizeEnv(process.env.GOOGLE_SERVICE_ACCOUNT_JSON_BASE64);
 
-  if (!rawJson) return null;
+  if (!rawJson && !rawJsonB64) return null;
 
   try {
-    const parsed = JSON.parse(rawJson);
+    const decodedJson = rawJsonB64
+      ? Buffer.from(rawJsonB64, 'base64').toString('utf8')
+      : rawJson;
+    const parsed = JSON.parse(decodedJson);
     const projectId = normalizeEnv(parsed?.project_id || parsed?.projectId);
     const clientEmail = normalizeEnv(parsed?.client_email || parsed?.clientEmail);
     const privateKeyRaw = normalizeEnv(parsed?.private_key || parsed?.privateKey);
@@ -92,11 +108,13 @@ if (!admin.apps.length && shouldUseAdminSDK) {
   const privateKeyRaw = jsonCreds?.privateKey || normalizePrivateKey(process.env.FIREBASE_PRIVATE_KEY);
   const keyCandidates = buildPrivateKeyCandidates(privateKeyRaw);
 
-  if (projectId && clientEmail && keyCandidates.length > 0) {
+  const validKeyCandidates = keyCandidates.filter((k) => isValidPrivateKey(k));
+
+  if (projectId && clientEmail && validKeyCandidates.length > 0) {
     let initialized = false;
     let lastError: any = null;
 
-    for (const privateKeyCandidate of keyCandidates) {
+    for (const privateKeyCandidate of validKeyCandidates) {
       try {
         if (admin.apps.length) {
           break;
@@ -128,7 +146,7 @@ if (!admin.apps.length && shouldUseAdminSDK) {
       console.warn(lastError);
     }
   } else {
-    adminInitError = 'Missing Firebase Admin env vars or invalid private key format';
+    adminInitError = 'Missing Firebase Admin env vars or invalid private key format (PEM parse failed)';
     console.log(
       '📝 Firebase Admin SDK not configured. Using mock data for development.'
     );
