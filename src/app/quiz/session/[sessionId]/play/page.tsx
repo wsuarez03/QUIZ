@@ -27,6 +27,7 @@ export default function PlaySessionPage() {
   const [players, setPlayers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [useServerFallback, setUseServerFallback] = useState(false);
   const [answerError, setAnswerError] = useState("");
   const [allAnswers, setAllAnswers] = useState<any[]>([]);
 
@@ -213,7 +214,7 @@ export default function PlaySessionPage() {
   }
 
   useEffect(() => {
-    if (!sessionId) return;
+    if (!sessionId || useServerFallback) return;
 
     setLoading(true);
 
@@ -286,21 +287,21 @@ export default function PlaySessionPage() {
               },
               (err) => {
                 console.error("Error listening questions:", err);
-                setError("No tienes permisos para leer preguntas en tiempo real");
+                setUseServerFallback(true);
                 setLoading(false);
               }
             );
           },
           (err) => {
             console.error("Error listening quiz:", err);
-            setError("No tienes permisos para leer el quiz en tiempo real");
+            setUseServerFallback(true);
             setLoading(false);
           }
         );
       },
       (err) => {
         console.error("Error listening game session:", err);
-        setError("No tienes permisos para leer la sesión en tiempo real");
+        setUseServerFallback(true);
         setLoading(false);
       }
     );
@@ -311,7 +312,7 @@ export default function PlaySessionPage() {
       unsubQuestions();
     };
 
-  }, [sessionId]);
+  }, [sessionId, useServerFallback]);
 
   // recuperar playerId guardado
   useEffect(() => {
@@ -342,7 +343,7 @@ export default function PlaySessionPage() {
 
   // obtener tabla de jugadores cuando termina la sesión
   useEffect(() => {
-    if (!sessionId) return;
+    if (!sessionId || useServerFallback) return;
 
     const playersRef = collection(db, "game_sessions", sessionId, "players");
     const unsubscribe = onSnapshot(playersRef, (snap) => {
@@ -353,10 +354,50 @@ export default function PlaySessionPage() {
       setPlayers(list);
     }, (err) => {
       console.error("Error listening players:", err);
+      setUseServerFallback(true);
     });
 
     return () => unsubscribe();
-  }, [sessionId]);
+  }, [sessionId, useServerFallback]);
+
+  useEffect(() => {
+    if (!sessionId || !useServerFallback) return;
+
+    let mounted = true;
+
+    const loadFromServer = async () => {
+      try {
+        const res = await fetch(`/api/game-sessions/${sessionId}?include=players,quiz`);
+        const data = await res.json();
+        if (!mounted) return;
+
+        if (!res.ok) {
+          if (res.status === 404) {
+            setError("Sesión no encontrada");
+          }
+          setLoading(false);
+          return;
+        }
+
+        if (data?.session) setSession(data.session);
+        if (Array.isArray(data?.players)) setPlayers(data.players);
+        if (data?.quiz) setQuiz(data.quiz);
+        setLoading(false);
+      } catch (err) {
+        if (!mounted) return;
+        console.error("Server fallback failed:", err);
+        setLoading(false);
+      }
+    };
+
+    loadFromServer();
+    const intervalId = setInterval(loadFromServer, 2000);
+
+    return () => {
+      mounted = false;
+      clearInterval(intervalId);
+    };
+  }, [sessionId, useServerFallback]);
 
   // Cargar option mappings del jugador actual
   useEffect(() => {

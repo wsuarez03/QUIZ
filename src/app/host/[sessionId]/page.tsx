@@ -10,7 +10,6 @@ import {
   doc,
   getDoc,
   getDocs,
-  updateDoc,
   onSnapshot,
   collection
 } from "firebase/firestore"
@@ -30,6 +29,7 @@ export default function HostPage() {
   const [players, setPlayers] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [savingResults, setSavingResults] = useState(false)
+  const [useServerFallback, setUseServerFallback] = useState(false)
   const advancingRef = useRef(false)
 
   function toSafeTimeLimit(rawValue: unknown, fallback = 20) {
@@ -61,7 +61,7 @@ export default function HostPage() {
   // 🔹 Escuchar sesión en tiempo real
   useEffect(() => {
 
-    if (!sessionId) return
+    if (!sessionId || useServerFallback) return
 
     const sessionRef = doc(db, "game_sessions", sessionId)
 
@@ -79,12 +79,13 @@ export default function HostPage() {
 
     }, (error) => {
       console.error("Error listening session:", error)
+      setUseServerFallback(true)
       setLoading(false)
     })
 
     return () => unsubscribe()
 
-  }, [sessionId])
+  }, [sessionId, useServerFallback])
 
 
   // 🔹 Cargar quiz
@@ -135,7 +136,7 @@ export default function HostPage() {
   // 🔹 Escuchar jugadores
   useEffect(() => {
 
-    if (!sessionId) return
+    if (!sessionId || useServerFallback) return
 
     const playersRef = collection(
       db,
@@ -161,22 +162,58 @@ export default function HostPage() {
 
     }, (error) => {
       console.error("Error listening players:", error)
+      setUseServerFallback(true)
     })
 
     return () => unsubscribe()
 
-  }, [sessionId])
+  }, [sessionId, useServerFallback])
+
+  useEffect(() => {
+    if (!sessionId || !useServerFallback) return
+
+    let mounted = true
+
+    const loadFromServer = async () => {
+      try {
+        const res = await fetch(`/api/game-sessions/${sessionId}?include=players,quiz`)
+        const data = await res.json()
+
+        if (!mounted) return
+
+        if (!res.ok) {
+          setLoading(false)
+          return
+        }
+
+        if (data?.session) setSession(data.session)
+        if (Array.isArray(data?.players)) setPlayers(data.players)
+        if (data?.quiz) setQuiz(data.quiz)
+        setLoading(false)
+      } catch (err) {
+        if (!mounted) return
+        console.error("Server fallback failed:", err)
+        setLoading(false)
+      }
+    }
+
+    loadFromServer()
+    const intervalId = setInterval(loadFromServer, 2000)
+
+    return () => {
+      mounted = false
+      clearInterval(intervalId)
+    }
+  }, [sessionId, useServerFallback])
 
 
   // 🔹 Iniciar juego
   const startGame = async () => {
 
-    const ref = doc(db, "game_sessions", sessionId)
-
-    await updateDoc(ref, {
-      status: "playing",
-      currentQuestion: 0,
-      questionStartTime: Date.now()
+    await fetch(`/api/game-sessions/${sessionId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "start" })
     })
 
   }
@@ -191,27 +228,10 @@ export default function HostPage() {
     advancingRef.current = true
 
     try {
-      const ref = doc(db, "game_sessions", sessionId)
-      const latestSnap = await getDoc(ref)
-      if (!latestSnap.exists()) return
-
-      const latestSession = latestSnap.data() as any
-      const latestCurrentQuestion = Number(latestSession?.currentQuestion ?? 0)
-
-      const isLast = latestCurrentQuestion >= totalQuestions - 1
-
-      if (isLast) {
-
-        await updateDoc(ref, {
-          status: "finished"
-        })
-
-        return
-      }
-
-      await updateDoc(ref, {
-        currentQuestion: latestCurrentQuestion + 1,
-        questionStartTime: Date.now()
+      await fetch(`/api/game-sessions/${sessionId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "next" })
       })
     } finally {
       advancingRef.current = false

@@ -14,6 +14,7 @@ export default function GameSession({ params }: { params: Promise<{ sessionId: s
   const [playerId, setPlayerId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  const [useServerFallback, setUseServerFallback] = useState(false);
   const joinedRef = useRef(false);
 
   // Unirse a la sesión
@@ -59,7 +60,7 @@ export default function GameSession({ params }: { params: Promise<{ sessionId: s
 
   // Escuchar cuando el host inicia el quiz
   useEffect(() => {
-    if (!sessionId) return;
+    if (!sessionId || useServerFallback) return;
     const unsub = onSnapshot(doc(db, "game_sessions", sessionId), (snapshot) => {
       const data = snapshot.data();
       console.log("[JUGADOR] Estado de la sesión:", data?.status);
@@ -72,10 +73,47 @@ export default function GameSession({ params }: { params: Promise<{ sessionId: s
       }
     }, (error) => {
       console.error("Error listening game session:", error);
-      setError("No tienes permisos para leer esta sesion en tiempo real");
+      setUseServerFallback(true);
     });
     return () => unsub();
-  }, [sessionId, router, name, playerId]);
+  }, [sessionId, router, name, playerId, useServerFallback]);
+
+  useEffect(() => {
+    if (!sessionId || !useServerFallback) return;
+
+    let mounted = true;
+
+    const pollSession = async () => {
+      try {
+        const res = await fetch(`/api/game-sessions/${sessionId}`);
+        const data = await res.json();
+        if (!mounted) return;
+
+        if (!res.ok) {
+          if (res.status === 404) setError("Sesion no encontrada");
+          return;
+        }
+
+        const status = data?.session?.status;
+        if (status === "playing") {
+          const pid = playerId || localStorage.getItem("playerId") || "";
+          const qs = new URLSearchParams({ name: name || "" });
+          if (pid) qs.set("pid", pid);
+          router.push(`/quiz/session/${sessionId}/play?${qs.toString()}`);
+        }
+      } catch (err) {
+        if (!mounted) return;
+        console.error("Server fallback polling failed:", err);
+      }
+    };
+
+    pollSession();
+    const intervalId = setInterval(pollSession, 2000);
+    return () => {
+      mounted = false;
+      clearInterval(intervalId);
+    };
+  }, [sessionId, useServerFallback, router, name, playerId]);
 
   if (loading) {
     return <div className="p-10"><p>Entrando al juego...</p></div>;
