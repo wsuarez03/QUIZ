@@ -125,6 +125,68 @@ export default function SavedResultsPage() {
     setDetailsOpen(true);
   };
 
+  const downloadResultPdf = async (
+    item: SavedResult,
+    row: SavedResult['results'][number]
+  ) => {
+    try {
+      const { jsPDF } = await import('jspdf');
+      const pdf = new jsPDF({ unit: 'pt', format: 'a4' });
+
+      const margin = 40;
+      const pageWidth = 595.28;
+      const contentWidth = pageWidth - margin * 2;
+      let y = 50;
+
+      const writeLine = (text: string, size = 11, gap = 16) => {
+        pdf.setFontSize(size);
+        const lines = pdf.splitTextToSize(text, contentWidth);
+        pdf.text(lines, margin, y);
+        y += lines.length * (size + 3) + gap;
+      };
+
+      const ensureSpace = (extra = 30) => {
+        if (y + extra > 790) {
+          pdf.addPage();
+          y = 50;
+        }
+      };
+
+      const safeName = String(row.playerName || 'jugador').replace(/[\\/:*?"<>|]/g, '_');
+
+      writeLine(`Resultados del jugador: ${row.playerName}`, 16, 12);
+      writeLine(`Quiz: ${item.quizTitle}`, 12, 8);
+      writeLine(`Sesion: ${item.sessionId} | Codigo: ${item.sessionCode || '-'}`, 11, 8);
+      writeLine(`Puntos: ${row.score} | Correctas: ${row.correctAnswers} | Acierto: ${row.accuracy}%`, 11, 14);
+
+      pdf.setDrawColor(170);
+      pdf.line(margin, y - 6, pageWidth - margin, y - 6);
+      y += 6;
+
+      const answers = Array.isArray(row.answers) ? row.answers : [];
+
+      if (!answers.length) {
+        writeLine('No hay detalle de respuestas para este jugador.', 11, 0);
+      } else {
+        answers.forEach((a, idx) => {
+          ensureSpace(95);
+          writeLine(`${idx + 1}. ${a.questionText}`, 12, 6);
+          writeLine(`Respondio: ${a.selectedOption}`, 10, 4);
+          writeLine(`Correcta: ${a.correctOption}`, 10, 4);
+          writeLine(`Estado: ${a.wasAnswered ? (a.isCorrect ? 'Correcta' : 'Incorrecta') : 'Sin responder'}`, 10, 10);
+          pdf.setDrawColor(230);
+          pdf.line(margin, y - 6, pageWidth - margin, y - 6);
+          y += 6;
+        });
+      }
+
+      pdf.save(`resultados_${item.sessionId}_${safeName}.pdf`);
+    } catch (err) {
+      console.error('Error generating PDF:', err);
+      setError('No se pudo descargar el PDF. Intenta nuevamente.');
+    }
+  };
+
   return (
     <>
       <Navbar />
@@ -182,13 +244,22 @@ export default function SavedResultsPage() {
                         <td className="border px-3 py-2">{row.correctAnswers}</td>
                         <td className="border px-3 py-2">{row.accuracy}%</td>
                         <td className="border px-3 py-2">
-                          <button
-                            onClick={() => openDetails(item.quizTitle, row.playerName, row.answers)}
-                            className="px-2 py-1 rounded border border-gray-300 hover:bg-gray-100"
-                            title="Ver respuestas"
-                          >
-                            👁 Ver
-                          </button>
+                          <div className="flex gap-2 items-center">
+                            <button
+                              onClick={() => openDetails(item.quizTitle, row.playerName, row.answers)}
+                              className="px-2 py-1 rounded border border-gray-300 hover:bg-gray-100"
+                              title="Ver respuestas"
+                            >
+                              👁 Ver
+                            </button>
+                            <button
+                              onClick={() => downloadResultPdf(item, row)}
+                              className="px-2 py-1 rounded border border-blue-300 text-blue-700 hover:bg-blue-50"
+                              title="Descargar PDF"
+                            >
+                              ↓ PDF
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}
