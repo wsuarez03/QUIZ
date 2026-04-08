@@ -39,52 +39,56 @@ export async function GET() {
       return NextResponse.json(status, { status: 200 });
     }
 
-    const quizzesSnap = await adminDbInstance.collection('quizzes').get();
-    const allQuizzes = quizzesSnap.docs.map((d: any) => ({ id: d.id, ...d.data() }));
+    try {
+      const quizzesSnap = await adminDbInstance.collection('quizzes').get();
+      const allQuizzes = quizzesSnap.docs.map((d: any) => ({ id: d.id, ...d.data() }));
 
-    const myQuizzes = allQuizzes.filter((q: any) => {
-      const candidates = [q.createdBy, q.createdByEmail, q.ownerId, q.ownerEmail]
-        .map((v: any) => String(v || '').toLowerCase())
-        .filter(Boolean);
-      return candidates.includes(userId.toLowerCase()) || candidates.includes(userEmail.toLowerCase());
-    });
+      const myQuizzes = allQuizzes.filter((q: any) => {
+        const candidates = [q.createdBy, q.createdByEmail, q.ownerId, q.ownerEmail]
+          .map((v: any) => String(v || '').toLowerCase())
+          .filter(Boolean);
+        return candidates.includes(userId.toLowerCase()) || candidates.includes(userEmail.toLowerCase());
+      });
 
-    const publicQuizzes = allQuizzes.filter((q: any) => {
-      if (q.isPublic === true || q.isPublic === 'true') return true;
-      return String(q.visibility || '').toLowerCase() === 'public';
-    });
+      const publicQuizzes = allQuizzes.filter((q: any) => {
+        if (q.isPublic === true || q.isPublic === 'true') return true;
+        return String(q.visibility || '').toLowerCase() === 'public';
+      });
 
-    const savedById = userId
-      ? await adminDbInstance.collection('saved_results').where('ownerId', '==', userId).get()
-      : { docs: [] };
+      const savedById = userId
+        ? await adminDbInstance.collection('saved_results').where('ownerId', '==', userId).get()
+        : { docs: [] };
 
-    const savedByEmail = userEmail
-      ? await adminDbInstance.collection('saved_results').where('ownerEmail', '==', userEmail).get()
-      : { docs: [] };
+      const savedByEmail = userEmail
+        ? await adminDbInstance.collection('saved_results').where('ownerEmail', '==', userEmail).get()
+        : { docs: [] };
 
-    const mergedSaved = new Map<string, any>();
-    [...(savedById.docs || []), ...(savedByEmail.docs || [])].forEach((d: any) => {
-      mergedSaved.set(d.id, { id: d.id, ...d.data() });
-    });
+      const mergedSaved = new Map<string, any>();
+      [...(savedById.docs || []), ...(savedByEmail.docs || [])].forEach((d: any) => {
+        mergedSaved.set(d.id, { id: d.id, ...d.data() });
+      });
 
-    status.counts.myQuizzes = myQuizzes.length;
-    status.counts.publicQuizzes = publicQuizzes.length;
-    status.counts.savedResultsById = (savedById.docs || []).length;
-    status.counts.savedResultsByEmail = (savedByEmail.docs || []).length;
+      status.counts.myQuizzes = myQuizzes.length;
+      status.counts.publicQuizzes = publicQuizzes.length;
+      status.counts.savedResultsById = (savedById.docs || []).length;
+      status.counts.savedResultsByEmail = (savedByEmail.docs || []).length;
 
-    status.samples.myQuizzes = myQuizzes.slice(0, 5).map((q: any) => ({
-      id: String(q.id),
-      title: String(q.title || ''),
-      createdBy: q.createdBy ? String(q.createdBy) : undefined,
-      createdByEmail: q.createdByEmail ? String(q.createdByEmail) : undefined,
-    }));
+      status.samples.myQuizzes = myQuizzes.slice(0, 5).map((q: any) => ({
+        id: String(q.id),
+        title: String(q.title || ''),
+        createdBy: q.createdBy ? String(q.createdBy) : undefined,
+        createdByEmail: q.createdByEmail ? String(q.createdByEmail) : undefined,
+      }));
 
-    status.samples.savedResults = Array.from(mergedSaved.values()).slice(0, 5).map((r: any) => ({
-      id: String(r.id),
-      quizTitle: r.quizTitle ? String(r.quizTitle) : undefined,
-      ownerId: r.ownerId ? String(r.ownerId) : undefined,
-      ownerEmail: r.ownerEmail ? String(r.ownerEmail) : undefined,
-    }));
+      status.samples.savedResults = Array.from(mergedSaved.values()).slice(0, 5).map((r: any) => ({
+        id: String(r.id),
+        quizTitle: r.quizTitle ? String(r.quizTitle) : undefined,
+        ownerId: r.ownerId ? String(r.ownerId) : undefined,
+        ownerEmail: r.ownerEmail ? String(r.ownerEmail) : undefined,
+      }));
+    } catch (queryError: any) {
+      (status as any).queryError = String(queryError?.message || queryError || 'unknown query error');
+    }
 
     return NextResponse.json(status, { status: 200 });
   } catch (error: any) {

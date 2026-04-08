@@ -24,18 +24,33 @@ function normalizeEnv(value?: string) {
 function normalizePrivateKey(value?: string) {
   const raw = normalizeEnv(value);
   if (!raw) return '';
+  return raw.replace(/\r/g, '').replace(/\\n/g, '\n');
+}
 
-  // Accept base64 encoded private key to avoid multiline env issues on hosting platforms.
+function buildPrivateKeyCandidates(rawKey?: string) {
+  const candidates = new Set<string>();
+  const normalizedRaw = normalizeEnv(rawKey);
   const maybeB64 = normalizeEnv(process.env.FIREBASE_PRIVATE_KEY_BASE64);
+
+  if (normalizedRaw) {
+    candidates.add(normalizedRaw);
+    candidates.add(normalizedRaw.replace(/\\n/g, '\n'));
+    candidates.add(normalizedRaw.replace(/\\\\n/g, '\n'));
+  }
+
   if (maybeB64) {
     try {
-      return Buffer.from(maybeB64, 'base64').toString('utf8').replace(/\r/g, '').replace(/\\n/g, '\n');
+      const decoded = Buffer.from(maybeB64, 'base64').toString('utf8');
+      candidates.add(decoded);
+      candidates.add(decoded.replace(/\\n/g, '\n'));
     } catch {
-      // ignore and fallback to raw value processing
+      // Ignore invalid base64 and continue with other candidates.
     }
   }
 
-  return raw.replace(/\r/g, '').replace(/\\n/g, '\n');
+  return Array.from(candidates)
+    .map((k) => k.replace(/\r/g, '').trim())
+    .filter((k) => k.includes('BEGIN PRIVATE KEY') && k.includes('END PRIVATE KEY'));
 }
 
 // Allow explicit disable via env, but do not disable automatically on Vercel.
@@ -75,29 +90,45 @@ if (!admin.apps.length && shouldUseAdminSDK) {
   const projectId = jsonCreds?.projectId || normalizeEnv(process.env.FIREBASE_PROJECT_ID);
   const clientEmail = jsonCreds?.clientEmail || normalizeEnv(process.env.FIREBASE_CLIENT_EMAIL);
   const privateKeyRaw = jsonCreds?.privateKey || normalizePrivateKey(process.env.FIREBASE_PRIVATE_KEY);
+  const keyCandidates = buildPrivateKeyCandidates(privateKeyRaw);
 
-  if (projectId && clientEmail && privateKeyRaw) {
-    try {
-      admin.initializeApp({
-        credential: admin.credential.cert({
-          projectId: projectId,
-          clientEmail: clientEmail,
-          // Private key may contain literal newlines, replace escaped ones
-          privateKey: normalizePrivateKey(privateKeyRaw),
-        }),
-      });
-      adminDb = initializeFirestore(admin.app(), { preferRest: true });
-      isConfigured = true;
-      adminInitError = '';
-      console.log('✓ Firebase Admin SDK initialized successfully');
-    } catch (error) {
-      adminInitError = String((error as any)?.message || error || 'unknown admin init error');
+  if (projectId && clientEmail && keyCandidates.length > 0) {
+    let initialized = false;
+    let lastError: any = null;
+
+    for (const privateKeyCandidate of keyCandidates) {
+      try {
+        if (admin.apps.length) {
+          break;
+        }
+
+        admin.initializeApp({
+          credential: admin.credential.cert({
+            projectId: projectId,
+            clientEmail: clientEmail,
+            privateKey: privateKeyCandidate,
+          }),
+        });
+        adminDb = initializeFirestore(admin.app(), { preferRest: true });
+        isConfigured = true;
+        adminInitError = '';
+        initialized = true;
+        console.log('✓ Firebase Admin SDK initialized successfully');
+        break;
+      } catch (error) {
+        lastError = error;
+      }
+    }
+
+    if (!initialized) {
+      adminInitError = String((lastError as any)?.message || lastError || 'unknown admin init error');
       console.warn(
         '⚠ Firebase Admin SDK initialization failed. Using mock data for development.'
       );
-      console.warn(error);
+      console.warn(lastError);
     }
   } else {
+    adminInitError = 'Missing Firebase Admin env vars or invalid private key format';
     console.log(
       '📝 Firebase Admin SDK not configured. Using mock data for development.'
     );
