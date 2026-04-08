@@ -22,10 +22,40 @@ function normalizeEnv(value?: string) {
 // Allow explicit disable via env, but do not disable automatically on Vercel.
 const shouldUseAdminSDK = normalizeEnv(process.env.FIREBASE_ADMIN_DISABLED) !== 'true';
 
+function parseServiceAccountFromJsonEnv() {
+  const rawJson =
+    normalizeEnv(process.env.FIREBASE_SERVICE_ACCOUNT_JSON) ||
+    normalizeEnv(process.env.FIREBASE_SERVICE_ACCOUNT_KEY) ||
+    normalizeEnv(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
+
+  if (!rawJson) return null;
+
+  try {
+    const parsed = JSON.parse(rawJson);
+    const projectId = normalizeEnv(parsed?.project_id || parsed?.projectId);
+    const clientEmail = normalizeEnv(parsed?.client_email || parsed?.clientEmail);
+    const privateKeyRaw = normalizeEnv(parsed?.private_key || parsed?.privateKey);
+
+    if (!projectId || !clientEmail || !privateKeyRaw) {
+      return null;
+    }
+
+    return {
+      projectId,
+      clientEmail,
+      privateKey: privateKeyRaw.replace(/\\n/g, '\n'),
+    };
+  } catch (error) {
+    console.warn('Invalid FIREBASE_SERVICE_ACCOUNT_JSON/FIREBASE_SERVICE_ACCOUNT_KEY format');
+    return null;
+  }
+}
+
 if (!admin.apps.length && shouldUseAdminSDK) {
-  const projectId = normalizeEnv(process.env.FIREBASE_PROJECT_ID);
-  const clientEmail = normalizeEnv(process.env.FIREBASE_CLIENT_EMAIL);
-  const privateKeyRaw = normalizeEnv(process.env.FIREBASE_PRIVATE_KEY);
+  const jsonCreds = parseServiceAccountFromJsonEnv();
+  const projectId = jsonCreds?.projectId || normalizeEnv(process.env.FIREBASE_PROJECT_ID);
+  const clientEmail = jsonCreds?.clientEmail || normalizeEnv(process.env.FIREBASE_CLIENT_EMAIL);
+  const privateKeyRaw = jsonCreds?.privateKey || normalizeEnv(process.env.FIREBASE_PRIVATE_KEY);
 
   if (projectId && clientEmail && privateKeyRaw) {
     try {
