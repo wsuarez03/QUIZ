@@ -10,10 +10,12 @@ export async function DELETE(request: Request) {
   try {
     const session = await getServerSession(authOptions);
 
-    if (!session?.user?.id) {
+    if (!session?.user?.id && !session?.user?.email) {
       return Response.json({ error: 'Usuario no autenticado' }, { status: 401 });
     }
 
+    const sessionUserId = String(session.user.id || '');
+    const sessionUserEmail = String(session.user.email || '').toLowerCase();
     // Obtener el ID del resultado desde el query string
     const url = new URL(request.url);
     const resultId = url.searchParams.get('id');
@@ -38,8 +40,14 @@ export async function DELETE(request: Request) {
         resultData = resultSnap.data();
 
         // Verificar que el usuario sea propietario
-        if (resultData.ownerId !== session.user.id) {
-          console.warn(`[DELETE] Permission denied: ${resultData.ownerId} !== ${session.user.id}`);
+        const ownerId = String(resultData?.ownerId || '');
+        const ownerEmail = String(resultData?.ownerEmail || '').toLowerCase();
+        const isOwner =
+          (sessionUserId && ownerId === sessionUserId) ||
+          (sessionUserEmail && ownerEmail === sessionUserEmail);
+
+        if (!isOwner) {
+          console.warn(`[DELETE] Permission denied for user ${sessionUserId || sessionUserEmail}`);
           return Response.json({ error: 'No tienes permiso para eliminar este resultado' }, { status: 403 });
         }
 
@@ -65,8 +73,14 @@ export async function DELETE(request: Request) {
       resultData = resultSnap.data();
 
       // Verificar que el usuario sea propietario
-      if (resultData.ownerId !== session.user.id) {
-        console.warn(`[DELETE] Permission denied: ${resultData.ownerId} !== ${session.user.id}`);
+      const ownerId = String(resultData?.ownerId || '');
+      const ownerEmail = String(resultData?.ownerEmail || '').toLowerCase();
+      const isOwner =
+        (sessionUserId && ownerId === sessionUserId) ||
+        (sessionUserEmail && ownerEmail === sessionUserEmail);
+
+      if (!isOwner) {
+        console.warn(`[DELETE] Permission denied for user ${sessionUserId || sessionUserEmail}`);
         return Response.json({ error: 'No tienes permiso para eliminar este resultado' }, { status: 403 });
       }
 

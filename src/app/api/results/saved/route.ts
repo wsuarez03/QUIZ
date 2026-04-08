@@ -54,37 +54,39 @@ export async function GET() {
       }
     }
 
-    if (!canUseAdmin && process.env.NODE_ENV !== 'production') {
-      const byOwnerIdQ = query(
-        collection(db, "saved_results"),
-        where("ownerId", "==", ownerId)
-      );
-
-      const snaps = [await getDocs(byOwnerIdQ)];
-
-      if (ownerEmail) {
-        const byOwnerEmailQ = query(
+    if (!canUseAdmin) {
+      try {
+        const byOwnerIdQ = query(
           collection(db, "saved_results"),
-          where("ownerEmail", "==", ownerEmail)
+          where("ownerId", "==", ownerId)
         );
-        snaps.push(await getDocs(byOwnerEmailQ));
-      }
 
-      const dedup = new Map<string, any>();
+        const snaps = [await getDocs(byOwnerIdQ)];
 
-      snaps.forEach((snap) => {
-        snap.docs.forEach((d) => {
-          dedup.set(d.id, {
-            id: d.id,
-            ...d.data()
+        if (ownerEmail) {
+          const byOwnerEmailQ = query(
+            collection(db, "saved_results"),
+            where("ownerEmail", "==", ownerEmail)
+          );
+          snaps.push(await getDocs(byOwnerEmailQ));
+        }
+
+        const dedup = new Map<string, any>();
+
+        snaps.forEach((snap) => {
+          snap.docs.forEach((d) => {
+            dedup.set(d.id, {
+              id: d.id,
+              ...d.data()
+            });
           });
         });
-      });
 
-      data = Array.from(dedup.values());
-    } else if (!canUseAdmin) {
-      console.error('saved_results: Admin SDK unavailable in production, returning empty array');
-      data = [];
+        data = Array.from(dedup.values());
+      } catch (fallbackErr) {
+        console.error('saved_results: Client SDK fallback failed:', fallbackErr);
+        data = [];
+      }
     }
 
     data.sort((a, b) => Number(b.savedAt || 0) - Number(a.savedAt || 0));

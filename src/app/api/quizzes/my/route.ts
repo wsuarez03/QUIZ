@@ -45,7 +45,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(userQuizzes, { status: 200 });
     }
 
-    if (!adminDbInstance && process.env.NODE_ENV !== 'production') {
+    if (!adminDbInstance) {
       console.warn('Firebase Admin is not available, using client SDK fallback for my quizzes');
 
       try {
@@ -73,9 +73,6 @@ export async function GET(request: NextRequest) {
         console.error('Client SDK fallback failed for my quizzes:', fallbackError);
         return NextResponse.json([], { status: 200 });
       }
-    } else if (!adminDbInstance) {
-      console.error('my quizzes: Admin SDK unavailable in production, returning empty array');
-      return NextResponse.json([], { status: 200 });
     }
 
     // use admin SDK for secure server-side access

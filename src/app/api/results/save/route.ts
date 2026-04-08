@@ -26,7 +26,7 @@ export async function POST(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
 
-    if (!session?.user?.id) {
+    if (!session?.user?.id && !session?.user?.email) {
       return NextResponse.json({ error: "No autorizado" }, { status: 401 });
     }
 
@@ -184,11 +184,14 @@ export async function POST(req: NextRequest) {
       };
     });
 
-    const docId = `${session.user.id}_${sessionId}`;
+    const ownerId = String(session.user.id || "");
+    const ownerEmail = String(session.user.email || "");
+    const ownerKey = ownerId || ownerEmail;
+    const docId = `${ownerKey}_${sessionId}`;
 
     const payload = {
-      ownerId: session.user.id,
-      ownerEmail: session.user.email || "",
+      ownerId,
+      ownerEmail,
       ownerName: session.user.name || "",
       sessionId,
       sessionCode: sessionData?.code || "",
