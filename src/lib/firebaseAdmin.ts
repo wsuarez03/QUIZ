@@ -1,4 +1,5 @@
 import admin from 'firebase-admin';
+import { initializeFirestore } from 'firebase-admin/firestore';
 
 // The service account credentials should be provided via environment variables
 // (e.g. in .env.local or your hosting platform). Example:
@@ -6,6 +7,7 @@ import admin from 'firebase-admin';
 
 let adminDb: any = null;
 let isConfigured = false;
+let adminInitError = '';
 
 function normalizeEnv(value?: string) {
   if (!value) return '';
@@ -17,6 +19,23 @@ function normalizeEnv(value?: string) {
     return trimmed.slice(1, -1);
   }
   return trimmed;
+}
+
+function normalizePrivateKey(value?: string) {
+  const raw = normalizeEnv(value);
+  if (!raw) return '';
+
+  // Accept base64 encoded private key to avoid multiline env issues on hosting platforms.
+  const maybeB64 = normalizeEnv(process.env.FIREBASE_PRIVATE_KEY_BASE64);
+  if (maybeB64) {
+    try {
+      return Buffer.from(maybeB64, 'base64').toString('utf8').replace(/\r/g, '').replace(/\\n/g, '\n');
+    } catch {
+      // ignore and fallback to raw value processing
+    }
+  }
+
+  return raw.replace(/\r/g, '').replace(/\\n/g, '\n');
 }
 
 // Allow explicit disable via env, but do not disable automatically on Vercel.
@@ -43,7 +62,7 @@ function parseServiceAccountFromJsonEnv() {
     return {
       projectId,
       clientEmail,
-      privateKey: privateKeyRaw.replace(/\\n/g, '\n'),
+      privateKey: normalizePrivateKey(privateKeyRaw),
     };
   } catch (error) {
     console.warn('Invalid FIREBASE_SERVICE_ACCOUNT_JSON/FIREBASE_SERVICE_ACCOUNT_KEY format');
@@ -55,7 +74,7 @@ if (!admin.apps.length && shouldUseAdminSDK) {
   const jsonCreds = parseServiceAccountFromJsonEnv();
   const projectId = jsonCreds?.projectId || normalizeEnv(process.env.FIREBASE_PROJECT_ID);
   const clientEmail = jsonCreds?.clientEmail || normalizeEnv(process.env.FIREBASE_CLIENT_EMAIL);
-  const privateKeyRaw = jsonCreds?.privateKey || normalizeEnv(process.env.FIREBASE_PRIVATE_KEY);
+  const privateKeyRaw = jsonCreds?.privateKey || normalizePrivateKey(process.env.FIREBASE_PRIVATE_KEY);
 
   if (projectId && clientEmail && privateKeyRaw) {
     try {
@@ -64,19 +83,15 @@ if (!admin.apps.length && shouldUseAdminSDK) {
           projectId: projectId,
           clientEmail: clientEmail,
           // Private key may contain literal newlines, replace escaped ones
-          privateKey: privateKeyRaw.replace(/\\n/g, '\n'),
+          privateKey: normalizePrivateKey(privateKeyRaw),
         }),
       });
-      adminDb = admin.firestore();
-      try {
-        // Prefer REST on serverless environments to avoid gRPC transport issues.
-        adminDb.settings({ preferRest: true });
-      } catch {
-        // Ignore if settings were already initialized.
-      }
+      adminDb = initializeFirestore(admin.app(), { preferRest: true });
       isConfigured = true;
+      adminInitError = '';
       console.log('✓ Firebase Admin SDK initialized successfully');
     } catch (error) {
+      adminInitError = String((error as any)?.message || error || 'unknown admin init error');
       console.warn(
         '⚠ Firebase Admin SDK initialization failed. Using mock data for development.'
       );
@@ -93,4 +108,5 @@ if (!admin.apps.length && shouldUseAdminSDK) {
 
 export { isConfigured };
 export const adminDbInstance = adminDb;
+export { adminInitError };
 export default admin;

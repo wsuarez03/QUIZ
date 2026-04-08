@@ -2,7 +2,7 @@
 import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
-import { adminDbInstance, isConfigured } from '@/lib/firebaseAdmin';
+import { adminDbInstance, isConfigured, adminInitError } from '@/lib/firebaseAdmin';
 
 export async function GET() {
   try {
@@ -18,6 +18,7 @@ export async function GET() {
     const status = {
       env: process.env.NODE_ENV || 'unknown',
       adminConfigured: Boolean(isConfigured && adminDbInstance),
+      adminInitError: adminInitError || undefined,
       user: {
         id: userId,
         email: userEmail,
