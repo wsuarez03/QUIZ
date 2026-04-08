@@ -50,6 +50,10 @@ export async function GET(request: NextRequest) {
     }
 
     try {
+      if (process.env.NODE_ENV === 'production') {
+        return NextResponse.json([], { status: 200 });
+      }
+
       const achievementsRef = collection(db, 'user_achievements');
       const byId = ownerId ? await getDocs(query(achievementsRef, where('userId', '==', ownerId))) : null;
       const byEmail = ownerEmail ? await getDocs(query(achievementsRef, where('userId', '==', ownerEmail))) : null;

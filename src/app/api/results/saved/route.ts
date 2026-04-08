@@ -11,7 +11,7 @@ export async function GET() {
   try {
     const session = await getServerSession(authOptions);
 
-    if (!session?.user?.id) {
+    if (!session?.user?.id && !session?.user?.email) {
       return NextResponse.json({ error: "No autorizado" }, { status: 401 });
     }
 
@@ -54,7 +54,7 @@ export async function GET() {
       }
     }
 
-    if (!canUseAdmin) {
+    if (!canUseAdmin && process.env.NODE_ENV !== 'production') {
       const byOwnerIdQ = query(
         collection(db, "saved_results"),
         where("ownerId", "==", ownerId)
@@ -82,6 +82,9 @@ export async function GET() {
       });
 
       data = Array.from(dedup.values());
+    } else if (!canUseAdmin) {
+      console.error('saved_results: Admin SDK unavailable in production, returning empty array');
+      data = [];
     }
 
     data.sort((a, b) => Number(b.savedAt || 0) - Number(a.savedAt || 0));
@@ -89,9 +92,6 @@ export async function GET() {
     return NextResponse.json(data);
   } catch (error: any) {
     console.error("Error loading saved results:", error);
-    return NextResponse.json(
-      { error: error?.message || "Error interno del servidor" },
-      { status: 500 }
-    );
+    return NextResponse.json([], { status: 200 });
   }
 }
