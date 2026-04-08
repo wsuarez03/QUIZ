@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { db } from "@/lib/firebase";
-import { collection, doc, onSnapshot, query, where, getDocs } from "firebase/firestore";
+import { collection, doc, onSnapshot } from "firebase/firestore";
 import { Navbar } from "@/components/Navbar";
 
 export default function PlaySessionPage() {
@@ -29,7 +29,6 @@ export default function PlaySessionPage() {
   const [error, setError] = useState("");
   const [useServerFallback, setUseServerFallback] = useState(false);
   const [answerError, setAnswerError] = useState("");
-  const [allAnswers, setAllAnswers] = useState<any[]>([]);
 
   const [selected, setSelected] = useState<number | null>(null);
   const [answered, setAnswered] = useState(false);
@@ -126,88 +125,29 @@ export default function PlaySessionPage() {
     
     try {
       setLoadingDetails(true);
-      
-      // Cargar todas las respuestas de la sesión desde Firestore
-      const answersRef = collection(db, "answers");
-      const answersQuery = query(answersRef, where("sessionId", "==", sessionId));
-      const answersSnap = await getDocs(answersQuery);
-      const answersData = answersSnap.docs.map(d => d.data());
-      
-      // Filtrar respuestas del jugador actual
-      const playerAnswers = answersData.filter(
-        (a: any) =>
-          String(a?.playerName || "").trim().toLowerCase() ===
-          String(playerName).trim().toLowerCase()
-      );
-      
-      // Construir mapa de respuestas indexadas por pregunta
-      const answerMap = new Map<number, any>();
-      playerAnswers.forEach((a: any) => {
-        const srcIdx = Number(a?.sourceQuestionIndex ?? a?.questionIndex);
-        if (!answerMap.has(srcIdx)) {
-          answerMap.set(srcIdx, a);
-        }
+
+      const qs = new URLSearchParams({
+        sessionId,
+        playerName,
       });
-      
-      // Determinar función para resolver respuesta correcta
-      function resolveCorrectIndex(question: any): number {
-        if (question?.correctAnswerIndex !== undefined) return Number(question.correctAnswerIndex);
-        if (question?.correct !== undefined) return Number(question.correct);
-        if (question?.correctAnswer !== undefined && !Array.isArray(question?.options)) {
-          const n = Number(question.correctAnswer);
-          if (!Number.isNaN(n)) return n;
-        }
-        if (question?.correctAnswer && Array.isArray(question?.options)) {
-          return question.options.findIndex(
-            (o: string) =>
-              String(o).trim().toLowerCase() ===
-              String(question.correctAnswer).trim().toLowerCase()
-          );
-        }
-        return -1;
+      if (playerId) {
+        qs.set("playerId", playerId);
       }
-      
-      const selectedQuestionIndexes: number[] = Array.isArray(session?.selectedQuestionIndexes)
-        ? session.selectedQuestionIndexes
-        : [];
-      const configQ = Math.min(
-        Math.max(1, Number(session?.questionsPerGame || quiz?.settings?.questionsPerGame || quiz?.questions?.length || 1)),
-        Math.max(1, Number(quiz?.questions?.length || 1))
-      );
-      const fallbackOrder = quiz?.questions
-        ? Array.from({ length: quiz.questions.length }, (_, i) => i).slice(0, configQ)
-        : [];
-      const questionOrder = selectedQuestionIndexes.length
-        ? selectedQuestionIndexes.slice(0, configQ)
-        : fallbackOrder;
-      
-      // Construir filas de detalles
-      const rows = questionOrder.map((sourceIndex: number, idx: number) => {
-        const q = quiz?.questions?.[sourceIndex] || {};
-        const options: string[] = Array.isArray(q?.options) ? q.options : [];
-        const correctIndex = resolveCorrectIndex(q);
-        const answerDoc = answerMap.get(Number(sourceIndex));
-        const selectedIndex = Number(answerDoc?.answerIndex ?? -1);
-        
-        return {
-          questionNumber: idx + 1,
-          questionText: q?.text || q?.question || "(sin texto)",
-          selectedOption: selectedIndex >= 0 && selectedIndex < options.length
-            ? options[selectedIndex]
-            : "(no respondida)",
-          correctOption: correctIndex >= 0 && correctIndex < options.length
-            ? options[correctIndex]
-            : "(desconocida)",
-          isCorrect: answerDoc ? Boolean(answerDoc.correct) : false,
-          wasAnswered: Boolean(answerDoc)
-        };
-      });
-      
-      setDetailsTitle(`${quiz?.title} - ${playerName}`);
-      setDetailsRows(rows);
+
+      const res = await fetch(`/api/results/player-details?${qs.toString()}`);
+      const data = await res.json();
+
+      if (!res.ok) {
+        setAnswerError(data?.error || "No se pudo cargar el detalle de resultados");
+        return;
+      }
+
+      setDetailsTitle(`${data?.quizTitle || quiz?.title || "Quiz"} - ${playerName}`);
+      setDetailsRows(Array.isArray(data?.rows) ? data.rows : []);
       setShowDetailsModal(true);
     } catch (e) {
       console.error("Error loading details:", e);
+      setAnswerError("No se pudo cargar el detalle de resultados");
     } finally {
       setLoadingDetails(false);
     }
